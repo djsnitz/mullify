@@ -406,7 +406,6 @@ const App = {
   },
 
   onAuthReady(hasProfile) {
-    DB.init();
     if(hasProfile){
       Players.list=Store.getPlayers();
       this.nav('home');
