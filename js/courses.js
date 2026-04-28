@@ -1,6 +1,5 @@
-// ── Courses (Golf Course API + Firebase-backed) ──
-const GOLF_API_KEY = 'LUMI5W3CW6EBRA3FYPCECXCWHM';
-const GOLF_API_BASE = 'https://api.golfcourseapi.com/v1';
+// ── Courses (Golf Course API via Vercel serverless proxy) ──
+const GOLF_API_BASE = '/api/courses';
 
 const Courses = {
   previewCourse: null,
@@ -54,9 +53,7 @@ const Courses = {
     const body = document.getElementById('courses-body');
     body.innerHTML = `<div class="empty-state"><div class="empty-title">Searching…</div><div class="empty-sub">${q}</div></div>`;
     try {
-      const res = await fetch(`${GOLF_API_BASE}/search?search_query=${encodeURIComponent(q)}`, {
-        headers: { 'Authorization': `Key ${GOLF_API_KEY}` }
-      });
+      const res = await fetch(`${GOLF_API_BASE}/search?search_query=${encodeURIComponent(q)}`);
       if (!res.ok) throw new Error(res.status);
       const data = await res.json();
       const courses = data.courses || data.data || data || [];
@@ -104,9 +101,7 @@ const Courses = {
     const body = document.getElementById('courses-body');
     body.innerHTML = `<div class="empty-state"><div class="empty-title">Loading scorecard…</div><div class="empty-sub">${name}</div></div>`;
     try {
-      const res = await fetch(`${GOLF_API_BASE}/courses/${apiId}`, {
-        headers: { 'Authorization': `Key ${GOLF_API_KEY}` }
-      });
+      const res = await fetch(`${GOLF_API_BASE}/courses/${apiId}`);
       if (!res.ok) throw new Error(res.status);
       const data = await res.json();
       const course = this._normalize(data.course||data, apiId, name, location);
