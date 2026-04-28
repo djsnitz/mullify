@@ -55,7 +55,7 @@ const Courses = {
     body.innerHTML = `<div class="empty-state"><div class="empty-title">Searching…</div><div class="empty-sub">${q}</div></div>`;
     try {
       const res = await fetch(`${GOLF_API_BASE}/search?search_query=${encodeURIComponent(q)}`, {
-        headers: { 'Authorization': `Bearer ${GOLF_API_KEY}` }
+        headers: { 'Authorization': `Key ${GOLF_API_KEY}` }
       });
       if (!res.ok) throw new Error(res.status);
       const data = await res.json();
@@ -105,7 +105,7 @@ const Courses = {
     body.innerHTML = `<div class="empty-state"><div class="empty-title">Loading scorecard…</div><div class="empty-sub">${name}</div></div>`;
     try {
       const res = await fetch(`${GOLF_API_BASE}/courses/${apiId}`, {
-        headers: { 'Authorization': `Bearer ${GOLF_API_KEY}` }
+        headers: { 'Authorization': `Key ${GOLF_API_KEY}` }
       });
       if (!res.ok) throw new Error(res.status);
       const data = await res.json();
