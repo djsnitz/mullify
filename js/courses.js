@@ -25,7 +25,7 @@ const Courses = {
       html += `<div class="section-label">Saved courses (${this.list.length})</div>`;
       html += this.list.map(c => this._courseCard(c, true)).join('');
     } else {
-      html += `<div class="note">Search for any course above. Downloaded courses work fully offline on the course.</div>`;
+      html += `<div class="note">Search for any course by name. Downloaded courses work fully offline on the course.</div>`;
     }
     body.innerHTML = html;
   },
@@ -56,34 +56,51 @@ const Courses = {
       const res = await fetch(`${GOLF_API_BASE}/search?search_query=${encodeURIComponent(q)}`);
       if (!res.ok) throw new Error(res.status);
       const data = await res.json();
-      const courses = data.courses || data.data || data || [];
-      if (!Array.isArray(courses) || !courses.length) {
-        body.innerHTML = `<div class="note">No courses found for "${q}". Try the full course name or a nearby city.</div>`;
+      const courses = data.courses || [];
+
+      if (!courses.length) {
+        body.innerHTML = `<div class="note">No courses found for "${q}". Try searching by course name only (e.g. "Twin Creeks" not "Allen TX").</div>`;
         this._appendSaved(body);
         return;
       }
+
       let html = `<div class="section-label">${courses.length} results for "${q}"</div>`;
-      html += courses.slice(0,25).map(c => {
-        const id = c.id || c.club_id || c.course_id || '';
-        const name = c.club_name || c.name || c.course_name || 'Unknown';
-        const loc = [c.city, c.state_name||c.state, c.country].filter(Boolean).join(', ');
-        const saved = !!this.list.find(s => s.sourceId === id+'');
-        return `<div class="course-card${saved?' saved':''}" onclick="Courses.openFromAPI('${id}','${name.replace(/'/g,"\\'")}','${loc.replace(/'/g,"\\'")}')">
+      html += courses.slice(0, 25).map(c => {
+        const id = c.id + '';
+        const name = c.club_name || c.course_name || 'Unknown';
+        const loc = [c.location?.city, c.location?.state, c.location?.country].filter(Boolean).join(', ');
+        const saved = !!this.list.find(s => s.sourceId === id);
+        // Normalize the course right from search results — no second API call needed
+        const normalized = this._normalizeAPIResponse(c);
+        const teeKeys = Object.keys(normalized.tees);
+        const chips = teeKeys.map(t => {
+          const cls = t==='Black'?'tc-black':t==='Blue'?'tc-blue':t==='White'?'tc-white':t==='Red'?'tc-red':'tc-gold';
+          return `<span class="tee-chip ${cls}">${t} ${normalized.tees[t].rating}/${normalized.tees[t].slope}</span>`;
+        }).join('');
+        return `<div class="course-card${saved?' saved':''}" onclick="Courses.openFromData(${c.id})">
           <div class="flex-between">
             <div><div class="course-card-name">${name}</div><div class="course-card-loc">${loc}</div></div>
             ${saved?'<span class="saved-chip">Saved ✓</span>':'<span style="font-size:12px;color:var(--green);">Preview ›</span>'}
           </div>
+          <div class="course-card-meta">
+            <span class="meta-chip">Par <strong>${normalized.par}</strong></span>
+            <span class="meta-chip">${teeKeys.length} tee${teeKeys.length!==1?'s':''}</span>
+          </div>
+          <div class="tee-chips">${chips}</div>
         </div>`;
       }).join('');
       body.innerHTML = html;
       this._appendSaved(body);
+      // Cache search results for preview
+      this._searchCache = {};
+      courses.forEach(c => { this._searchCache[c.id] = c; });
+
     } catch(e) {
-      console.error(e);
-      // Fallback to sample data
+      console.error('Search error:', e);
       const qL = q.toLowerCase();
-      const fb = SAMPLE_COURSES.filter(c => c.name.toLowerCase().includes(qL)||c.location.toLowerCase().includes(qL));
-      body.innerHTML = `<div class="note amber">Live search unavailable. Showing offline results.</div>` +
-        (fb.length ? `<div class="section-label">Results</div>${fb.map(c=>this._courseCard(c,!!this.list.find(s=>s.id===c.id))).join('')}` : `<div class="note">No offline results for "${q}".</div>`);
+      const fb = SAMPLE_COURSES.filter(c => c.name.toLowerCase().includes(qL) || c.location.toLowerCase().includes(qL));
+      body.innerHTML = `<div class="note amber">Search unavailable. Showing offline results.</div>` +
+        (fb.length ? fb.map(c => this._courseCard(c, !!this.list.find(s=>s.id===c.id))).join('') : `<div class="note">No offline results for "${q}".</div>`);
       this._appendSaved(body);
     }
   },
@@ -95,59 +112,63 @@ const Courses = {
     body.appendChild(div);
   },
 
-  async openFromAPI(apiId, name, location) {
+  // Open from cached search result — no second API call needed
+  openFromData(apiId) {
     const saved = this.list.find(c => c.sourceId === apiId+'');
     if (saved) { this.openPreview(saved.id); return; }
-    const body = document.getElementById('courses-body');
-    body.innerHTML = `<div class="empty-state"><div class="empty-title">Loading scorecard…</div><div class="empty-sub">${name}</div></div>`;
-    try {
-      const res = await fetch(`${GOLF_API_BASE}/courses/${apiId}`);
-      if (!res.ok) throw new Error(res.status);
-      const data = await res.json();
-      const course = this._normalize(data.course||data, apiId, name, location);
-      this.previewCourse = course;
-      this._showPreview(course);
-    } catch(e) {
-      console.error(e);
-      const course = this._minimal(apiId, name, location);
-      this.previewCourse = course;
-      this._showPreview(course);
-    }
+    const raw = this._searchCache?.[apiId];
+    if (!raw) { this.search(); return; }
+    const course = this._normalizeAPIResponse(raw);
+    this.previewCourse = course;
+    this._showPreview(course);
   },
 
-  _normalize(data, apiId, name, location) {
+  // Normalize API response to our internal format
+  _normalizeAPIResponse(data) {
     const tees = {};
-    const teeArr = data.tees || data.courses || [];
-    teeArr.forEach(t => {
-      const color = this._teeColor(t.tee_name||t.name||t.color||'Blue');
-      const holes = t.holes || [];
+    // API has male and female tees — we use male tees primarily
+    const maleTees   = data.tees?.male   || [];
+    const femaleTees = data.tees?.female || [];
+    const allTees    = maleTees.length ? maleTees : femaleTees;
+
+    allTees.forEach(t => {
+      const color = this._teeColor(t.tee_name || 'Blue');
+      const holes  = t.holes || [];
       if (!holes.length) return;
       tees[color] = {
-        rating: parseFloat(t.course_rating||t.rating||72),
-        slope:  parseInt(t.slope_rating||t.slope||113),
-        yds: holes.map(h => parseInt(h.yardage||h.yards||h.distance||0)),
-        par: holes.map(h => parseInt(h.par||4)),
-        hcp: holes.map(h => parseInt(h.handicap||h.stroke_index||1))
+        rating: parseFloat(t.course_rating || 72),
+        slope:  parseInt(t.slope_rating   || 113),
+        yds: holes.map(h => parseInt(h.yardage || 0)),
+        par: holes.map(h => parseInt(h.par    || 4)),
+        hcp: holes.map(h => parseInt(h.handicap || 1))
       };
     });
-    if (!Object.keys(tees).length) tees['Blue'] = this._genericTee(72,113);
-    const fp = Object.values(tees)[0];
+
+    if (!Object.keys(tees).length) tees['Blue'] = this._genericTee(72, 113);
+
+    const firstTee = Object.values(tees)[0];
+    const totalPar = firstTee.par.reduce((a,b)=>a+b, 0);
+    const loc = [data.location?.city, data.location?.state].filter(Boolean).join(', ') || data.location?.address || '';
+
     return {
-      id: 'api-'+apiId, sourceId: apiId+'',
-      name: data.club_name||data.name||name,
-      location: [data.city, data.state_name||data.state].filter(Boolean).join(', ')||location,
-      par: fp.par.reduce((a,b)=>a+b,0), holes:18, tees
+      id: 'api-' + data.id,
+      sourceId: data.id + '',
+      name: data.club_name || data.course_name || 'Unknown Course',
+      location: loc,
+      par: totalPar,
+      holes: 18,
+      tees
     };
   },
 
   _teeColor(raw) {
-    const r = (raw||'').toLowerCase();
-    if (r.includes('black')||r.includes('tournament')) return 'Black';
-    if (r.includes('gold')||r.includes('master'))      return 'Gold';
-    if (r.includes('blue')||r.includes('champion'))    return 'Blue';
-    if (r.includes('white')||r.includes('member'))     return 'White';
-    if (r.includes('red')||r.includes('forward'))      return 'Red';
-    return raw.charAt(0).toUpperCase()+raw.slice(1);
+    const r = (raw || '').toUpperCase();
+    if (r.includes('BLACK') || r.includes('TOURNAMENT')) return 'Black';
+    if (r.includes('GOLD')  || r.includes('MASTER'))     return 'Gold';
+    if (r.includes('BLUE')  || r.includes('CHAMPION'))   return 'Blue';
+    if (r.includes('WHITE') || r.includes('MEMBER'))     return 'White';
+    if (r.includes('RED')   || r.includes('FORWARD'))    return 'Red';
+    return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
   },
 
   _genericTee(rating, slope) {
@@ -156,10 +177,6 @@ const Courses = {
       yds: [380,370,175,520,395,385,510,165,420,400,390,185,530,385,375,515,160,415],
       hcp: [7,11,17,3,9,13,1,15,5,6,12,18,2,8,14,4,16,10]
     };
-  },
-
-  _minimal(apiId, name, location) {
-    return { id:'api-'+apiId, sourceId:apiId+'', name, location, par:72, holes:18, tees:{Blue:this._genericTee(72,113)} };
   },
 
   openPreview(id) {
@@ -171,13 +188,13 @@ const Courses = {
 
   _showPreview(course) {
     document.getElementById('preview-course-name').textContent = course.name;
-    document.getElementById('preview-course-loc').textContent = course.location||'';
-    const teeKeys = Object.keys(course.tees||{});
-    this.previewTee = teeKeys[Math.min(1,teeKeys.length-1)]||teeKeys[0];
+    document.getElementById('preview-course-loc').textContent = course.location || '';
+    const teeKeys = Object.keys(course.tees || {});
+    this.previewTee = teeKeys[Math.min(1, teeKeys.length-1)] || teeKeys[0];
     this._buildTeeBar(teeKeys);
     this._buildRating();
     this._buildScorecard();
-    const alreadySaved = !!this.list.find(c=>c.id===course.id||c.sourceId===course.sourceId);
+    const alreadySaved = !!this.list.find(c => c.id===course.id || c.sourceId===course.sourceId);
     const dlBtn = document.getElementById('preview-dl-btn');
     dlBtn.textContent = alreadySaved ? 'Already saved ✓' : 'Download for offline use';
     dlBtn.disabled = alreadySaved;
