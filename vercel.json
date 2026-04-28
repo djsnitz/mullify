@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/courses/search",
+      "destination": "/api/courses?path=search"
+    },
+    {
+      "source": "/api/courses/courses/:id",
+      "destination": "/api/courses?path=courses&id=:id"
+    }
+  ]
+}
