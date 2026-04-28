@@ -1,21 +1,30 @@
-// ── Mullify Auth ── (fixed loading order)
+// ── Mullify Auth ──
 const Auth = {
   currentUser: null,
   playerProfile: null,
 
   async init() {
-    // Firebase is loaded via CDN scripts in index.html — wait for it
     await this._waitForFirebase();
-    firebase.initializeApp(FIREBASE_CONFIG);
+    // Initialize Firebase app first
+    if (!firebase.apps.length) {
+      firebase.initializeApp(FIREBASE_CONFIG);
+    }
+    // Initialize DB immediately after Firebase app
+    DB.init();
 
     firebase.auth().onAuthStateChanged(async user => {
       if (user) {
         this.currentUser = user;
-        const profile = await DB.getUserProfile(user.uid);
-        if (profile) {
-          this.playerProfile = profile;
-          App.onAuthReady(true);
-        } else {
+        try {
+          const profile = await DB.getUserProfile(user.uid);
+          if (profile) {
+            this.playerProfile = profile;
+            App.onAuthReady(true);
+          } else {
+            App.onAuthReady(false);
+          }
+        } catch(e) {
+          console.error('Profile fetch error:', e);
           App.onAuthReady(false);
         }
       } else {
@@ -50,7 +59,7 @@ const Auth = {
     try {
       await firebase.auth().signInWithEmailAndPassword(email, password);
     } catch(e) {
-      if (e.code === 'auth/user-not-found' || e.code === 'auth/invalid-credential') {
+      if (e.code === 'auth/user-not-found' || e.code === 'auth/invalid-credential' || e.code === 'auth/wrong-password') {
         try {
           await firebase.auth().createUserWithEmailAndPassword(email, password);
         } catch(e2) { this._showError(e2.message); }
