@@ -370,9 +370,15 @@ const App = {
     const body=document.getElementById('claim-profile-body');
     const players=Store.getPlayers();
     if(!players.length){
-      body.innerHTML=`<div class="empty-state"><div class="empty-title">No players set up yet</div><div class="empty-sub">Ask your group admin to add players first.</div></div>`;
-      return;
-    }
+  body.innerHTML=`<div class="empty-state"><div class="empty-title">Welcome to Mullify!</div><div class="empty-sub">Setting up your group...</div></div>`;
+  if(Auth.currentUser){
+    DB.setAdmin(Auth.currentUser.uid).then(()=>{
+      if(Auth.playerProfile) Auth.playerProfile.isAdmin=true;
+    });
+  }
+  setTimeout(()=>App.nav('home'), 1500);
+  return;
+}
     body.innerHTML=`
       <div class="step-title" style="margin-bottom:8px;">Who are you?</div>
       <div class="step-sub" style="margin-bottom:20px;">Select your name to link your account to your player profile.</div>
