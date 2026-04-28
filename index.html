@@ -11,299 +11,218 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="stylesheet" href="css/app.css" />
+  <style>
+    @keyframes pulse { 0%,100%{opacity:1;}50%{opacity:.4;} }
+    .login-screen { background: linear-gradient(160deg, #0f2d1e 0%, #1a6b47 100%); display:flex; flex-direction:column; align-items:center; justify-content:center; padding:32px 24px; }
+    .login-logo { margin-bottom:8px; }
+    .login-title { font-size:34px; font-weight:700; color:white; letter-spacing:-0.5px; }
+    .login-sub { font-size:14px; color:rgba(255,255,255,0.7); letter-spacing:2px; text-transform:uppercase; margin-bottom:40px; }
+    .login-card { background:white; border-radius:20px; padding:24px; width:100%; max-width:360px; }
+    .login-card-title { font-size:18px; font-weight:600; margin-bottom:4px; }
+    .login-card-sub { font-size:13px; color:var(--text-2); margin-bottom:20px; }
+    .google-btn { width:100%; padding:13px; border-radius:10px; border:1.5px solid var(--border-2); background:white; display:flex; align-items:center; justify-content:center; gap:10px; font-size:15px; font-weight:500; margin-bottom:12px; cursor:pointer; }
+    .google-btn:hover { background:var(--bg-2); }
+    .divider { display:flex; align-items:center; gap:10px; margin:16px 0; color:var(--text-3); font-size:13px; }
+    .divider::before, .divider::after { content:''; flex:1; height:1px; background:var(--border); }
+    .auth-error { background:var(--red-light); color:var(--red); border-radius:8px; padding:10px 12px; font-size:13px; margin-bottom:12px; display:none; }
+    .join-link { color:rgba(255,255,255,0.8); font-size:13px; margin-top:20px; cursor:pointer; text-decoration:underline; }
+  </style>
 </head>
 <body>
-  <div id="app">
-    <!-- Splash -->
-    <div id="screen-splash" class="screen active">
-      <div class="splash-inner">
-        <div class="splash-logo">
-          <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
-            <circle cx="32" cy="32" r="30" fill="#1a6b47"/>
-            <circle cx="32" cy="26" r="10" fill="white" opacity="0.95"/>
-            <path d="M16 48 Q32 36 48 48" stroke="white" stroke-width="3" fill="none" stroke-linecap="round"/>
-          </svg>
-        </div>
-        <h1 class="splash-title">Mullify</h1>
-        <p class="splash-sub">Game Keeper</p>
-        <div class="splash-loader"><div class="splash-loader-fill"></div></div>
+<div id="app">
+
+  <!-- Splash -->
+  <div id="screen-splash" class="screen active">
+    <div class="splash-inner">
+      <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+        <circle cx="32" cy="32" r="30" fill="#1a6b47"/>
+        <circle cx="32" cy="26" r="10" fill="white" opacity="0.95"/>
+        <path d="M16 48 Q32 36 48 48" stroke="white" stroke-width="3" fill="none" stroke-linecap="round"/>
+      </svg>
+      <h1 class="splash-title">Mullify</h1>
+      <p class="splash-sub">Game Keeper</p>
+      <div class="splash-loader"><div class="splash-loader-fill"></div></div>
+    </div>
+  </div>
+
+  <!-- Login -->
+  <div id="screen-login" class="screen login-screen">
+    <div class="login-logo">
+      <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+        <circle cx="32" cy="32" r="30" fill="rgba(255,255,255,0.15)"/>
+        <circle cx="32" cy="26" r="10" fill="white" opacity="0.95"/>
+        <path d="M16 48 Q32 36 48 48" stroke="white" stroke-width="3" fill="none" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div class="login-title">Mullify</div>
+    <div class="login-sub">Game Keeper</div>
+    <div class="login-card">
+      <div class="login-card-title">Sign in</div>
+      <div class="login-card-sub">Sign in to access your golf group.</div>
+      <div id="auth-error" class="auth-error"></div>
+      <button class="google-btn" onclick="Auth.signInGoogle()">
+        <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+        Continue with Google
+      </button>
+      <div class="divider">or</div>
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input class="form-input" type="email" id="login-email" placeholder="you@example.com" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input class="form-input" type="password" id="login-password" placeholder="••••••••" />
+      </div>
+      <button class="primary-btn" onclick="Auth.signInEmail(document.getElementById('login-email').value,document.getElementById('login-password').value)" style="margin-bottom:0;">Sign in / Create account</button>
+    </div>
+    <div class="join-link" onclick="App.showJoinWithoutLogin()">Have a round code? Join without signing in →</div>
+  </div>
+
+  <!-- Claim profile (first time after login) -->
+  <div id="screen-claim-profile" class="screen">
+    <div class="top-bar"><div></div><div class="top-bar-title">Who are you?</div><div></div></div>
+    <div class="screen-body" id="claim-profile-body"></div>
+  </div>
+
+  <!-- Home -->
+  <div id="screen-home" class="screen">
+    <div class="top-bar">
+      <div><div class="top-bar-title">Mullify</div><div class="top-bar-sub" id="home-date"></div></div>
+      <button class="icon-btn" onclick="App.nav('settings')">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+    <div class="screen-body">
+      <div id="home-active-round" style="display:none;"></div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-label">Players</div><div class="stat-value" id="home-stat-players">—</div><div class="stat-sub">in group</div></div>
+        <div class="stat-card"><div class="stat-label">Courses</div><div class="stat-value" id="home-stat-courses">—</div><div class="stat-sub">downloaded</div></div>
+        <div class="stat-card"><div class="stat-label">Rounds</div><div class="stat-value" id="home-stat-rounds">—</div><div class="stat-sub">this season</div></div>
+        <div class="stat-card"><div class="stat-label">Last pot</div><div class="stat-value" id="home-stat-pot">—</div><div class="stat-sub">paid out</div></div>
+      </div>
+      <div class="section-label">Quick actions</div>
+      <button class="primary-btn" onclick="App.nav('round-setup')">Start new round</button>
+      <button class="primary-btn" style="background:none;border:1.5px solid var(--green);color:var(--green);" onclick="App.nav('join-round')">Join a round (enter code)</button>
+      <div class="action-list">
+        <button class="action-row" onclick="App.nav('courses')"><span>Search &amp; download courses</span><span class="chevron">›</span></button>
+        <button class="action-row" onclick="App.nav('players')"><span>Manage players</span><span class="chevron">›</span></button>
+        <button class="action-row" onclick="App.nav('quota')"><span>Quota standings</span><span class="chevron">›</span></button>
+        <button class="action-row" onclick="App.nav('history')"><span>Round history</span><span class="chevron">›</span></button>
       </div>
     </div>
-
-    <!-- Home -->
-    <div id="screen-home" class="screen">
-      <div class="top-bar">
-        <div>
-          <div class="top-bar-title">Mullify</div>
-          <div class="top-bar-sub" id="home-date"></div>
-        </div>
-        <button class="icon-btn" onclick="App.nav('settings')">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        </button>
-      </div>
-      <div class="screen-body">
-        <div id="home-active-round" style="display:none;"></div>
-        <div class="stat-grid">
-          <div class="stat-card">
-            <div class="stat-label">Players</div>
-            <div class="stat-value" id="home-stat-players">0</div>
-            <div class="stat-sub">in group</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Courses</div>
-            <div class="stat-value" id="home-stat-courses">0</div>
-            <div class="stat-sub">downloaded</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Rounds</div>
-            <div class="stat-value" id="home-stat-rounds">0</div>
-            <div class="stat-sub">this season</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Pot</div>
-            <div class="stat-value" id="home-stat-pot">$0</div>
-            <div class="stat-sub">last round</div>
-          </div>
-        </div>
-        <div class="section-label">Quick actions</div>
-        <button class="primary-btn" onclick="App.nav('round-setup')">Start new round</button>
-        <div class="action-list">
-          <button class="action-row" onclick="App.nav('courses')">
-            <span>Search &amp; download courses</span><span class="chevron">›</span>
-          </button>
-          <button class="action-row" onclick="App.nav('players')">
-            <span>Manage players</span><span class="chevron">›</span>
-          </button>
-          <button class="action-row" onclick="App.nav('quota')">
-            <span>Quota standings</span><span class="chevron">›</span>
-          </button>
-          <button class="action-row" onclick="App.nav('history')">
-            <span>Round history</span><span class="chevron">›</span>
-          </button>
-        </div>
-      </div>
-      <div class="bottom-nav">
-        <button class="nav-item active" onclick="App.nav('home')">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-          <span>Home</span>
-        </button>
-        <button class="nav-item" onclick="App.nav('scorecard')">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-          <span>Scorecard</span>
-        </button>
-        <button class="nav-item" onclick="App.nav('players')">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-          <span>Players</span>
-        </button>
-        <button class="nav-item" onclick="App.nav('payouts')">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-          <span>Payouts</span>
-        </button>
-      </div>
+    <div class="bottom-nav">
+      <button class="nav-item active" onclick="App.nav('home')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg><span>Home</span></button>
+      <button class="nav-item" onclick="App.nav('scorecard')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>Scorecard</span></button>
+      <button class="nav-item" onclick="App.nav('players')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><span>Players</span></button>
+      <button class="nav-item" onclick="App.nav('payouts')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg><span>Payouts</span></button>
     </div>
+  </div>
 
-    <!-- Players -->
-    <div id="screen-players" class="screen">
-      <div class="top-bar">
-        <button class="back-btn" onclick="App.back()">‹</button>
-        <div class="top-bar-title">Players</div>
-        <button class="text-btn" onclick="App.nav('add-player')">+ Add</button>
-      </div>
-      <div class="screen-body" id="players-list-body"></div>
+  <!-- Join Round -->
+  <div id="screen-join-round" class="screen">
+    <div class="top-bar"><button class="back-btn" onclick="App.back()">‹</button><div class="top-bar-title">Join round</div><div></div></div>
+    <div class="screen-body" id="join-round-body"></div>
+  </div>
+
+  <!-- Players -->
+  <div id="screen-players" class="screen">
+    <div class="top-bar"><button class="back-btn" onclick="App.back()">‹</button><div class="top-bar-title">Players</div><button class="text-btn" onclick="App.nav('add-player')">+ Add</button></div>
+    <div class="screen-body" id="players-list-body"></div>
+  </div>
+
+  <!-- Add Player -->
+  <div id="screen-add-player" class="screen">
+    <div class="top-bar"><button class="back-btn" onclick="App.back()">‹</button><div class="top-bar-title">Add player</div><div></div></div>
+    <div class="screen-body">
+      <div class="avatar-preview-wrap"><div class="avatar-lg" id="add-avatar-preview">?</div></div>
+      <div class="form-group"><label class="form-label">First name</label><input class="form-input" type="text" id="add-first" placeholder="e.g. Mike" oninput="Players.updatePreview()" /></div>
+      <div class="form-group"><label class="form-label">Last name</label><input class="form-input" type="text" id="add-last" placeholder="e.g. Johnson" oninput="Players.updatePreview()" /></div>
+      <div class="form-group"><label class="form-label">GHIN number (optional)</label><div class="input-row"><input class="form-input" type="text" id="add-ghin" placeholder="e.g. 1234567" style="flex:1;" /><button class="outline-btn" onclick="Players.lookupGHIN()">Look up</button></div><div id="ghin-result" class="info-box" style="display:none;"></div></div>
+      <div class="form-group"><label class="form-label">Handicap index</label><input class="form-input" type="number" id="add-hcp" placeholder="e.g. 12.4" step="0.1" min="0" max="54" /></div>
+      <div class="form-group"><label class="form-label">Preferred tee</label><div class="tee-row" id="add-tee-row"><button class="tee-btn" data-tee="Black" onclick="Players.selectTee(this)">Black</button><button class="tee-btn tee-active-blue" data-tee="Blue" onclick="Players.selectTee(this)">Blue</button><button class="tee-btn" data-tee="White" onclick="Players.selectTee(this)">White</button><button class="tee-btn" data-tee="Red" onclick="Players.selectTee(this)">Red</button></div></div>
+      <div class="form-group"><label class="form-label">Quota (leave blank to auto-set)</label><input class="form-input" type="number" id="add-quota" placeholder="e.g. 20" /></div>
+      <button class="primary-btn" id="add-player-btn" onclick="Players.save()" disabled>Add to group</button>
     </div>
+  </div>
 
-    <!-- Add Player -->
-    <div id="screen-add-player" class="screen">
-      <div class="top-bar">
-        <button class="back-btn" onclick="App.back()">‹</button>
-        <div class="top-bar-title">Add player</div>
-        <div></div>
-      </div>
-      <div class="screen-body">
-        <div class="avatar-preview-wrap">
-          <div class="avatar-lg" id="add-avatar-preview">?</div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">First name</label>
-          <input class="form-input" type="text" id="add-first" placeholder="e.g. Mike" oninput="Players.updatePreview()" />
-        </div>
-        <div class="form-group">
-          <label class="form-label">Last name</label>
-          <input class="form-input" type="text" id="add-last" placeholder="e.g. Johnson" oninput="Players.updatePreview()" />
-        </div>
-        <div class="form-group">
-          <label class="form-label">GHIN number (optional)</label>
-          <div class="input-row">
-            <input class="form-input" type="text" id="add-ghin" placeholder="e.g. 1234567" style="flex:1;" />
-            <button class="outline-btn" onclick="Players.lookupGHIN()">Look up</button>
-          </div>
-          <div id="ghin-result" class="info-box" style="display:none;"></div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Handicap index</label>
-          <input class="form-input" type="number" id="add-hcp" placeholder="e.g. 12.4" step="0.1" min="0" max="54" />
-        </div>
-        <div class="form-group">
-          <label class="form-label">Preferred tee</label>
-          <div class="tee-row" id="add-tee-row">
-            <button class="tee-btn" data-tee="Black" onclick="Players.selectTee(this)">Black</button>
-            <button class="tee-btn tee-active-blue" data-tee="Blue" onclick="Players.selectTee(this)">Blue</button>
-            <button class="tee-btn" data-tee="White" onclick="Players.selectTee(this)">White</button>
-            <button class="tee-btn" data-tee="Red" onclick="Players.selectTee(this)">Red</button>
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Quota (leave blank to auto-set)</label>
-          <input class="form-input" type="number" id="add-quota" placeholder="e.g. 20" step="1" min="0" />
-        </div>
-        <button class="primary-btn" id="add-player-btn" onclick="Players.save()" disabled>Add to group</button>
-      </div>
+  <!-- Courses -->
+  <div id="screen-courses" class="screen">
+    <div class="top-bar"><button class="back-btn" onclick="App.back()">‹</button><div class="top-bar-title">Courses</div><div></div></div>
+    <div class="search-bar-wrap"><input class="search-input" type="text" id="course-search-input" placeholder="Course name or city, state..." /><button class="search-go-btn" onclick="Courses.search()">Search</button></div>
+    <div class="screen-body" id="courses-body"></div>
+  </div>
+
+  <!-- Course Preview -->
+  <div id="screen-course-preview" class="screen">
+    <div class="top-bar"><button class="back-btn" onclick="App.back()">‹</button><div><div class="top-bar-title" id="preview-course-name">Course</div><div class="top-bar-sub" id="preview-course-loc"></div></div><div></div></div>
+    <div class="tee-selector-bar" id="preview-tee-bar"></div>
+    <div class="rating-strip" id="preview-rating-strip"></div>
+    <div class="screen-body no-pad"><div class="scorecard-wrap"><table class="scorecard-tbl" id="preview-scorecard"></table></div></div>
+    <div class="dl-footer"><div class="dl-bar-wrap" id="dl-bar-wrap" style="display:none;"><div class="dl-bar"><div class="dl-bar-fill" id="dl-bar-fill"></div></div></div><button class="primary-btn" id="preview-dl-btn" onclick="Courses.download()">Download for offline use</button><div class="offline-note">Works without cell signal on the course</div></div>
+  </div>
+
+  <!-- Round Setup -->
+  <div id="screen-round-setup" class="screen">
+    <div class="top-bar"><button class="back-btn" onclick="App.back()">‹</button><div><div class="top-bar-title">New round</div><div class="top-bar-sub" id="setup-step-label">Step 1 of 4</div></div><div></div></div>
+    <div class="step-dots" id="setup-dots"></div>
+    <div class="screen-body" id="setup-body"></div>
+  </div>
+
+  <!-- Scorecard -->
+  <div id="screen-scorecard" class="screen">
+    <div class="top-bar green-bar"><div><div class="top-bar-title" id="sc-course-name">Round</div><div class="top-bar-sub" id="sc-course-sub"></div></div><div class="hole-big" id="sc-hole-display">H1</div></div>
+    <div class="hole-nav-strip" id="sc-hole-nav"></div>
+    <div class="hole-info-strip" id="sc-hole-info"></div>
+    <div class="view-tabs" id="sc-tabs">
+      <button class="view-tab active" onclick="Scorecard.showView('entry',this)">Score entry</button>
+      <button class="view-tab" onclick="Scorecard.showView('leaderboard',this)">Leaderboard</button>
+      <button class="view-tab" onclick="Scorecard.showView('skins',this)">Skins</button>
+      <button class="view-tab" onclick="Scorecard.showView('quota',this)">Quota</button>
     </div>
+    <div class="screen-body" id="sc-body"></div>
+  </div>
 
-    <!-- Courses -->
-    <div id="screen-courses" class="screen">
-      <div class="top-bar">
-        <button class="back-btn" onclick="App.back()">‹</button>
-        <div class="top-bar-title">Courses</div>
-        <div></div>
-      </div>
-      <div class="search-bar-wrap">
-        <input class="search-input" type="text" id="course-search-input" placeholder="Course name or city, state..." />
-        <button class="search-go-btn" onclick="Courses.search()">Search</button>
-      </div>
-      <div class="screen-body" id="courses-body"></div>
-    </div>
+  <!-- Payouts -->
+  <div id="screen-payouts" class="screen">
+    <div class="top-bar green-bar"><button class="back-btn light" onclick="App.back()">‹</button><div><div class="top-bar-title">Payout sheet</div><div class="top-bar-sub admin-chip">Admin</div></div><div class="pot-chip" id="payout-pot-chip">$0</div></div>
+    <div class="view-tabs"><button class="view-tab active" onclick="Payouts.showView('cashout',this)">Cash out</button><button class="view-tab" onclick="Payouts.showView('breakdown',this)">Breakdown</button><button class="view-tab" onclick="Payouts.showView('ledger',this)">Ledger</button></div>
+    <div class="screen-body" id="payouts-body"></div>
+  </div>
 
-    <!-- Course Preview -->
-    <div id="screen-course-preview" class="screen">
-      <div class="top-bar">
-        <button class="back-btn" onclick="App.back()">‹</button>
-        <div>
-          <div class="top-bar-title" id="preview-course-name">Course</div>
-          <div class="top-bar-sub" id="preview-course-loc"></div>
-        </div>
-        <div></div>
-      </div>
-      <div class="tee-selector-bar" id="preview-tee-bar"></div>
-      <div class="rating-strip" id="preview-rating-strip"></div>
-      <div class="screen-body no-pad">
-        <div class="scorecard-wrap">
-          <table class="scorecard-tbl" id="preview-scorecard"></table>
-        </div>
-      </div>
-      <div class="dl-footer">
-        <div class="dl-bar-wrap" id="dl-bar-wrap" style="display:none;">
-          <div class="dl-bar"><div class="dl-bar-fill" id="dl-bar-fill"></div></div>
-        </div>
-        <button class="primary-btn" id="preview-dl-btn" onclick="Courses.download()">Download for offline use</button>
-        <div class="offline-note">Works without cell signal on the course</div>
-      </div>
-    </div>
+  <!-- Quota -->
+  <div id="screen-quota" class="screen">
+    <div class="top-bar"><button class="back-btn" onclick="App.back()">‹</button><div class="top-bar-title">Quota standings</div><button class="text-btn" onclick="App.nav('quota-admin')">Rules</button></div>
+    <div class="screen-body" id="quota-body"></div>
+  </div>
 
-    <!-- Round Setup -->
-    <div id="screen-round-setup" class="screen">
-      <div class="top-bar">
-        <button class="back-btn" onclick="App.back()">‹</button>
-        <div>
-          <div class="top-bar-title">New round</div>
-          <div class="top-bar-sub" id="setup-step-label">Step 1 of 4</div>
-        </div>
-        <div></div>
-      </div>
-      <div class="step-dots" id="setup-dots"></div>
-      <div class="screen-body" id="setup-body"></div>
-    </div>
+  <!-- Quota Admin -->
+  <div id="screen-quota-admin" class="screen">
+    <div class="top-bar"><button class="back-btn" onclick="App.back()">‹</button><div class="top-bar-title">Quota rules</div><div></div></div>
+    <div class="screen-body" id="quota-admin-body"></div>
+  </div>
 
-    <!-- Scorecard (Live Round) -->
-    <div id="screen-scorecard" class="screen">
-      <div class="top-bar green-bar">
-        <div>
-          <div class="top-bar-title" id="sc-course-name">Round</div>
-          <div class="top-bar-sub" id="sc-course-sub"></div>
-        </div>
-        <div class="hole-big" id="sc-hole-display">H1</div>
-      </div>
-      <div class="hole-nav-strip" id="sc-hole-nav"></div>
-      <div class="hole-info-strip" id="sc-hole-info"></div>
-      <div class="view-tabs" id="sc-tabs">
-        <button class="view-tab active" onclick="Scorecard.showView('entry',this)">Score entry</button>
-        <button class="view-tab" onclick="Scorecard.showView('leaderboard',this)">Leaderboard</button>
-        <button class="view-tab" onclick="Scorecard.showView('skins',this)">Skins</button>
-        <button class="view-tab" onclick="Scorecard.showView('quota',this)">Quota</button>
-      </div>
-      <div class="screen-body" id="sc-body"></div>
-    </div>
+  <!-- History -->
+  <div id="screen-history" class="screen">
+    <div class="top-bar"><button class="back-btn" onclick="App.back()">‹</button><div class="top-bar-title">Round history</div><div></div></div>
+    <div class="screen-body" id="history-body"></div>
+  </div>
 
-    <!-- Payouts -->
-    <div id="screen-payouts" class="screen">
-      <div class="top-bar green-bar">
-        <button class="back-btn light" onclick="App.back()">‹</button>
-        <div>
-          <div class="top-bar-title">Payout sheet</div>
-          <div class="top-bar-sub admin-chip">Admin</div>
-        </div>
-        <div class="pot-chip" id="payout-pot-chip">$0</div>
-      </div>
-      <div class="view-tabs">
-        <button class="view-tab active" onclick="Payouts.showView('cashout',this)">Cash out</button>
-        <button class="view-tab" onclick="Payouts.showView('breakdown',this)">Breakdown</button>
-        <button class="view-tab" onclick="Payouts.showView('ledger',this)">Ledger</button>
-      </div>
-      <div class="screen-body" id="payouts-body"></div>
-    </div>
+  <!-- Settings -->
+  <div id="screen-settings" class="screen">
+    <div class="top-bar"><button class="back-btn" onclick="App.back()">‹</button><div class="top-bar-title">Settings</div><div></div></div>
+    <div class="screen-body" id="settings-body"></div>
+  </div>
 
-    <!-- Quota -->
-    <div id="screen-quota" class="screen">
-      <div class="top-bar">
-        <button class="back-btn" onclick="App.back()">‹</button>
-        <div class="top-bar-title">Quota standings</div>
-        <button class="text-btn" onclick="App.nav('quota-admin')">Rules</button>
-      </div>
-      <div class="screen-body" id="quota-body"></div>
-    </div>
-
-    <!-- Quota Admin -->
-    <div id="screen-quota-admin" class="screen">
-      <div class="top-bar">
-        <button class="back-btn" onclick="App.back()">‹</button>
-        <div class="top-bar-title">Quota rules</div>
-        <div></div>
-      </div>
-      <div class="screen-body" id="quota-admin-body"></div>
-    </div>
-
-    <!-- History -->
-    <div id="screen-history" class="screen">
-      <div class="top-bar">
-        <button class="back-btn" onclick="App.back()">‹</button>
-        <div class="top-bar-title">Round history</div>
-        <div></div>
-      </div>
-      <div class="screen-body" id="history-body"></div>
-    </div>
-
-    <!-- Settings -->
-    <div id="screen-settings" class="screen">
-      <div class="top-bar">
-        <button class="back-btn" onclick="App.back()">‹</button>
-        <div class="top-bar-title">Settings</div>
-        <div></div>
-      </div>
-      <div class="screen-body" id="settings-body"></div>
-    </div>
-
-  </div><!-- #app -->
-
-  <script src="js/store.js"></script>
-  <script src="js/courses-data.js"></script>
-  <script src="js/players.js"></script>
-  <script src="js/courses.js"></script>
-  <script src="js/round-setup.js"></script>
-  <script src="js/scorecard.js"></script>
-  <script src="js/payouts.js"></script>
-  <script src="js/quota.js"></script>
-  <script src="js/history.js"></script>
-  <script src="js/settings.js"></script>
-  <script src="js/app.js"></script>
+</div>
+<script src="js/firebase-config.js"></script>
+<script src="js/store.js"></script>
+<script src="js/courses-data.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/db.js"></script>
+<script src="js/players.js"></script>
+<script src="js/courses.js"></script>
+<script src="js/round-setup.js"></script>
+<script src="js/scorecard.js"></script>
+<script src="js/app.js"></script>
 </body>
 </html>
