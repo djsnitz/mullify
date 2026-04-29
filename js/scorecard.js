@@ -198,6 +198,7 @@ const Scorecard = {
 
     if (this.isAdmin) {
       html += `<button class="primary-btn" onclick="Scorecard.saveHole()" style="margin-top:12px;">Save hole ${h+1}${h<17?' & next →':' — finish round'}</button>`;
+      html += `<button class="ghost-btn" style="margin-top:6px;border-color:var(--red);color:var(--red);" onclick="Scorecard.confirmEndRound()">End round &amp; go to payouts</button>`;
     }
 
     body.innerHTML = html;
@@ -356,6 +357,20 @@ const Scorecard = {
     }
 
     body.innerHTML = html;
+  },
+
+  async confirmEndRound() {
+    const r = this.round;
+    const h = r.currentHole || 0;
+    const holeIndexes = r.holeIndexes || Array.from({length:18},(_,i)=>i);
+    const holesPlayed = holeIndexes.filter(i => r.players.some(p => r.scores?.[p.id]?.[i] !== undefined)).length;
+    const msg = holesPlayed === 0
+      ? 'No scores entered yet. End the round anyway?'
+      : `End round after ${holesPlayed} hole${holesPlayed!==1?'s':''}? Payouts will be calculated on scores entered so far.`;
+    if (!confirm(msg)) return;
+    await DB.updateRound(this.roundCode, {status:'complete'});
+    Payouts.buildFromRound({...r, code:this.roundCode});
+    App.nav('payouts');
   },
 
   async moveToGroup(playerIdx, newGroup) {
