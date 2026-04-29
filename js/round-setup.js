@@ -8,6 +8,7 @@ const RoundSetup = {
     this.config = {
       course: null,
       players: [],
+      holes: '18',
       useHandicap: true,
       netScoring: true,
       entryMode: 'both',
@@ -35,7 +36,7 @@ const RoundSetup = {
 
   _step1(body) {
     const courses = Store.getCourses();
-    let html = `<div class="step-title">Choose course</div><div class="step-sub">Select from your downloaded courses.</div>`;
+    let html = `<div class="step-title">Choose course</div><div class="step-sub">Select your course and how many holes you're playing.</div>`;
     if (!courses.length) {
       html += `<div class="note amber">No courses downloaded. Download a course first.</div>`;
       html += `<button class="ghost-btn" onclick="App.nav('courses')">Go to Courses →</button>`;
@@ -47,9 +48,25 @@ const RoundSetup = {
           <div class="tee-chips">${Object.keys(c.tees).map(t=>{const cl=t==='Black'?'tc-black':t==='Blue'?'tc-blue':t==='White'?'tc-white':t==='Red'?'tc-red':'tc-gold';return`<span class="tee-chip ${cl}">${t}</span>`;}).join('')}</div>
         </div>`;
       }).join('');
+      html += `<button class="ghost-btn" onclick="App.nav('courses')" style="margin-bottom:16px;">Download another course →</button>`;
+
+      // Holes selection
+      html += `<div class="section-label">Holes to play</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px;">
+        ${[{val:'18',label:'18 holes',sub:'Full round'},{val:'front9',label:'Front 9',sub:'Holes 1–9'},{val:'back9',label:'Back 9',sub:'Holes 10–18'}].map(o=>`
+          <div onclick="RoundSetup.selectHoles('${o.val}')" style="border:${this.config.holes===o.val?'2px solid var(--green)':'0.5px solid var(--border-2)'};border-radius:var(--radius-sm);padding:10px 8px;text-align:center;cursor:pointer;background:${this.config.holes===o.val?'var(--green-light)':'none'};">
+            <div style="font-size:13px;font-weight:600;color:${this.config.holes===o.val?'var(--green-dark)':'var(--text)'};">${o.label}</div>
+            <div style="font-size:11px;color:${this.config.holes===o.val?'var(--green)':'var(--text-2)'};">${o.sub}</div>
+          </div>`).join('')}
+      </div>`;
       html += `<button class="primary-btn" onclick="RoundSetup.next()" ${!this.config.course?'disabled':''}>Next — select players</button>`;
     }
     body.innerHTML = html;
+  },
+
+  selectHoles(val) {
+    this.config.holes = val;
+    this.renderStep();
   },
 
   selectCourse(id) {
@@ -206,12 +223,14 @@ const RoundSetup = {
       players: activePlayers.map(pp => ({...pp.player, tee:pp.tee})),
       useHandicap: c.useHandicap,
       netScoring: c.netScoring,
+      holes: c.holes || '18',
+      holeIndexes: c.holes === 'front9' ? [0,1,2,3,4,5,6,7,8] : c.holes === 'back9' ? [9,10,11,12,13,14,15,16,17] : Array.from({length:18},(_,i)=>i),
       games: c.games,
       buyin,
       pot: buyin * activePlayers.length,
       skinResults: {},
       scores: {},
-      currentHole: 0,
+      currentHole: c.holes === 'back9' ? 9 : 0,
       entryMode: c.entryMode,
       adminUid: Auth.currentUser?.uid
     };

@@ -28,6 +28,10 @@ const DB = {
     await this._ref(`users/${uid}/isAdmin`).set(true);
   },
 
+  async removeAdmin(uid) {
+    await this._ref(`users/${uid}/isAdmin`).set(false);
+  },
+
   // ── Players ──
   async getPlayers() {
     const snap = await this._ref('players').get();

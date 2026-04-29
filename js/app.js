@@ -290,13 +290,7 @@ const App = {
   _onEnter(screen) {
     if(screen==='home')          Home.render();
     else if(screen==='players')  Players.load();
-    else if(screen==='add-player') {
-      ['add-first','add-last','add-ghin','add-hcp','add-quota'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
-      const av=document.getElementById('add-avatar-preview');if(av)av.textContent='?';
-      const btn=document.getElementById('add-player-btn');if(btn)btn.disabled=true;
-      const gr=document.getElementById('ghin-result');if(gr)gr.style.display='none';
-      Players.selectedTee='Blue';
-    }
+    else if(screen==='add-player') Players.resetForm();
     else if(screen==='courses')       Courses.load();
     else if(screen==='round-setup')   RoundSetup.start();
     else if(screen==='scorecard') {
@@ -395,14 +389,14 @@ const App = {
 
   async claimProfile(playerId, playerName) {
     await Auth.linkToPlayer(playerId, playerName);
-    // Mark player as linked in DB
     await DB.updatePlayer(playerId, {linkedUid: Auth.currentUser.uid});
-    // Check if first user — make them admin
-    const players=await DB.getPlayers();
-    const linked=players.filter(p=>p.linkedUid);
-    if(linked.length===1){
+    const players = await DB.getPlayers();
+    const linked  = players.filter(p => p.linkedUid);
+    if (linked.length === 1) {
       await DB.setAdmin(Auth.currentUser.uid);
-      Auth.playerProfile.isAdmin=true;
+      await DB.saveUserProfile(Auth.currentUser.uid, {...Auth.playerProfile, isAdmin: true, isOriginalAdmin: true});
+      Auth.playerProfile.isAdmin = true;
+      Auth.playerProfile.isOriginalAdmin = true;
     }
     App.nav('home');
     Home.render();
@@ -414,7 +408,10 @@ const App = {
   },
 
   onAuthReady(hasProfile) {
-    if(hasProfile){
+    if (hasProfile) {
+      // Sync isAdmin and isOriginalAdmin from stored profile
+      Auth.playerProfile.isAdmin = Auth.playerProfile.isAdmin || false;
+      Auth.playerProfile.isOriginalAdmin = Auth.playerProfile.isOriginalAdmin || false;
       Players.list=Store.getPlayers();
       this.nav('home');
     } else {

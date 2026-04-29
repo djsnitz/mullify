@@ -52,13 +52,13 @@ const Scorecard = {
     document.getElementById('sc-course-sub').textContent = `${players.length} players · ${r.date}${this.isAdmin?' · Admin':''}`;
     document.getElementById('sc-hole-display').textContent = `H${h+1}`;
 
-    // Hole nav pills
-    document.getElementById('sc-hole-nav').innerHTML = Array.from({length:18},(_,i) => {
-      const scores = r.scores || {};
-      const anyScore = players.some(p => scores[p.id]?.[i] !== undefined);
+    // Hole nav — only show holes being played
+    const holeIndexes = r.holeIndexes || Array.from({length:18},(_,i)=>i);
+    document.getElementById('sc-hole-nav').innerHTML = holeIndexes.map(i => {
+      const done = r.players.some(p => r.scores?.[p.id]?.[i] !== undefined);
       const skin = (r.skinResults||{})[i];
       const skinWon = skin && !skin.tied;
-      return `<button class="hole-pill${i===h?' active':''}${anyScore?' done':''}${skinWon?' skin-won':''}" onclick="Scorecard.goHole(${i})">${i+1}</button>`;
+      return `<button class="hole-pill${i===h?' active':''}${done?' done':''}${skinWon?' skin-won':''}" onclick="Scorecard.goHole(${i})">${i+1}</button>`;
     }).join('');
 
     // Hole info
@@ -240,6 +240,9 @@ const Scorecard = {
     const r = this.round;
     const h = r.currentHole || 0;
     const players = r.players || [];
+    const holeIndexes = r.holeIndexes || Array.from({length:18},(_,i)=>i);
+    const currentIdx = holeIndexes.indexOf(h);
+    const isLastHole = currentIdx === holeIndexes.length - 1;
 
     // Determine skin result
     const netScores = players.map((p) => {
@@ -253,10 +256,10 @@ const Scorecard = {
 
     await DB.saveSkinResult(this.roundCode, h, skinResult);
 
-    if (h < 17) {
-      await DB.saveCurrentHole(this.roundCode, h + 1);
+    if (!isLastHole) {
+      const nextHole = holeIndexes[currentIdx + 1];
+      await DB.saveCurrentHole(this.roundCode, nextHole);
     } else {
-      // Round complete — go to payouts
       await DB.updateRound(this.roundCode, {status:'complete'});
       Payouts.buildFromRound({...r, code:this.roundCode});
       App.nav('payouts');
