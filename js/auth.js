@@ -56,13 +56,31 @@ const Auth = {
 
   async signInEmail(email, password) {
     if (!email || !password) { this._showError('Please enter email and password.'); return; }
+    const el = document.getElementById('auth-error');
+    if (el) el.style.display = 'none';
     try {
       await firebase.auth().signInWithEmailAndPassword(email, password);
     } catch(e) {
-      if (e.code === 'auth/user-not-found' || e.code === 'auth/invalid-credential' || e.code === 'auth/wrong-password') {
-        try {
-          await firebase.auth().createUserWithEmailAndPassword(email, password);
-        } catch(e2) { this._showError(e2.message); }
+      if (e.code === 'auth/user-not-found' || e.code === 'auth/invalid-credential' || e.code === 'auth/invalid-login-credentials') {
+        this._showError('No account found with that email. Use "Create new account" to sign up.');
+      } else if (e.code === 'auth/wrong-password') {
+        this._showError('Incorrect password. Please try again.');
+      } else {
+        this._showError(e.message);
+      }
+    }
+  },
+
+  async createEmail(email, password) {
+    if (!email || !password) { this._showError('Please enter email and password.'); return; }
+    if (password.length < 6) { this._showError('Password must be at least 6 characters.'); return; }
+    const el = document.getElementById('auth-error');
+    if (el) el.style.display = 'none';
+    try {
+      await firebase.auth().createUserWithEmailAndPassword(email, password);
+    } catch(e) {
+      if (e.code === 'auth/email-already-in-use') {
+        this._showError('An account with that email already exists. Use "Sign in" instead.');
       } else {
         this._showError(e.message);
       }
