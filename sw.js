@@ -1,31 +1,47 @@
-const CACHE = 'mullify-v3';
-const ASSETS = ['/', '/index.html', '/css/app.css', '/manifest.json',
-  '/js/firebase-config.js', '/js/auth.js', '/js/db.js', '/js/store.js',
-  '/js/courses-data.js', '/js/players.js', '/js/courses.js',
-  '/js/round-setup.js', '/js/scorecard.js', '/js/app.js'];
+// Mullify Service Worker v3 — network first for HTML, cache first for assets
+const CACHE = 'mullify-v3.2';
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(()=>{})).then(() => self.skipWaiting()));
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(keys =>
-    Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-  ).then(() => self.clients.claim()));
+  e.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+    ).then(() => self.clients.claim())
+  );
 });
 
 self.addEventListener('fetch', e => {
   const url = e.request.url;
-  // Never intercept external API calls — let them go straight to network
+
+  // Never cache or intercept these
   if (url.includes('golfcourseapi.com') ||
       url.includes('firebaseio.com') ||
       url.includes('firebase.com') ||
       url.includes('googleapis.com') ||
-      url.includes('gstatic.com')) {
-    return; // Let browser handle it normally
+      url.includes('gstatic.com') ||
+      url.includes('firebaseapp.com')) {
+    return;
   }
-  // For local assets — cache first, fallback to network
+
+  // Always fetch HTML fresh from network — never serve stale HTML
+  if (e.request.mode === 'navigate' || url.endsWith('.html') || url.endsWith('/')) {
+    e.respondWith(
+      fetch(e.request).catch(() => caches.match('/index.html'))
+    );
+    return;
+  }
+
+  // For JS/CSS — network first, fallback to cache
   e.respondWith(
-    caches.match(e.request).then(r => r || fetch(e.request).catch(() => caches.match('/index.html')))
+    fetch(e.request)
+      .then(res => {
+        const clone = res.clone();
+        caches.open(CACHE).then(c => c.put(e.request, clone));
+        return res;
+      })
+      .catch(() => caches.match(e.request))
   );
 });
