@@ -48,8 +48,8 @@ const Scorecard = {
     const firstTee = players[0]?.tee || 'Blue';
     const holeData = r.course?.tees?.[firstTee] || Object.values(r.course?.tees||{})[0];
 
-    document.getElementById('sc-course-name').textContent = r.course?.name || 'Round';
-    document.getElementById('sc-course-sub').textContent = `${players.length} players · ${r.date}${this.isAdmin?' · Admin':''}`;
+    document.getElementById('sc-course-name').textContent = r.roundName || r.course?.name || 'Round';
+    document.getElementById('sc-course-sub').textContent = `${r.course?.name||''} · ${players.length} players${this.isAdmin?' · Admin':''} · Code: ${this.roundCode||''}`;
     document.getElementById('sc-hole-display').textContent = `H${h+1}`;
 
     // Hole nav — use shared holeIndexes or first player's indexes
@@ -381,25 +381,29 @@ const Scorecard = {
     await DB.updateRound(this.roundCode, { players: r.players });
     this._renderGroups(document.getElementById('sc-body'));
   },
+
+  _renderQuota(body) {
     const r = this.round;
-    const pts = r.games?.quota?.pts || r.games?.stableford?.pts || {eagle:4,birdie:3,par:2,bogey:1,double:0,worse:0};
+    const is9hole = r.holes === 'front9' || r.holes === 'back9';
     let html = `<div class="card">`;
     (r.players||[]).forEach((p,i) => {
+      const playerQuota = is9hole ? (p.quota9||Math.round((p.quota||18)/2)) : (p.quota||18);
       const scored = Object.keys(r.scores?.[p.id]||{}).length;
       const currentPts = this._totalPts(i);
-      const pct = Math.min(100,Math.round(currentPts/p.quota*100));
-      const paceTarget = Math.round(p.quota/18*scored);
+      const totalHoles = (r.holeIndexes||[]).length||18;
+      const pct = Math.min(100,Math.round(currentPts/playerQuota*100));
+      const paceTarget = Math.round(playerQuota/totalHoles*scored);
       const diff = currentPts - paceTarget;
       const fillColor = pct>=100?'var(--green)':pct>=70?'var(--amber)':'var(--red)';
       html+=`<div class="quota-row">
         <div class="avatar">${p.initials}</div>
         <div class="quota-info">
           <div class="quota-name">${p.name}</div>
-          <div class="quota-sub">${currentPts} pts · quota ${p.quota} · thru ${scored}</div>
+          <div class="quota-sub">${currentPts} pts · ${is9hole?'9H ':''}quota ${playerQuota} · thru ${scored}</div>
           <div class="mini-bar"><div class="mini-fill" style="width:${pct}%;background:${fillColor};"></div></div>
         </div>
         <div class="quota-right">
-          <div class="quota-target">${currentPts}/${p.quota}</div>
+          <div class="quota-target">${currentPts}/${playerQuota}</div>
           <div class="quota-adj ${diff>=0?'adj-up':'adj-down'}">${diff>=0?'+':''}${diff} vs pace</div>
         </div>
       </div>`;

@@ -6,12 +6,13 @@ const RoundSetup = {
   start() {
     this.step = 1;
     this.config = {
+      roundName: '',
       course: null,
       players: [],
       holes: '18',
       startHole: 1,
       shotgun: false,
-      groups: [],        // [{name:'Group 1', playerIndexes:[0,1,2]}]
+      groups: [],
       useHandicap: true,
       netScoring: true,
       entryMode: 'both',
@@ -40,10 +41,13 @@ const RoundSetup = {
   // ── Step 1: Course + holes + shotgun ──
   _step1(body) {
     const courses = Store.getCourses();
-    const totalHoles = this.config.holes === '18' ? 18 : 9;
-    const maxStart = this.config.holes === '18' ? 18 : 9;
+    let html = `<div class="step-title">Course &amp; format</div><div class="step-sub">Name your round, pick a course and format.</div>`;
 
-    let html = `<div class="step-title">Course &amp; format</div><div class="step-sub">Choose your course, holes, and starting hole.</div>`;
+    // Round name
+    html += `<div class="form-group">
+      <label class="form-label">Round name</label>
+      <input class="form-input" type="text" id="round-name-input" placeholder="e.g. Saturday Morning Round" value="${this.config.roundName||''}" oninput="RoundSetup.config.roundName=this.value" />
+    </div>`;
     if (!courses.length) {
       html += `<div class="note amber">No courses downloaded. Download a course first.</div>`;
       html += `<button class="ghost-btn" onclick="App.nav('courses')">Go to Courses →</button>`;
@@ -118,90 +122,132 @@ const RoundSetup = {
 
   toggleShotgun(el) { el.classList.toggle('on'); this.config.shotgun = el.classList.contains('on'); this.renderStep(); },
 
-  // ── Step 2: Players, tees, groups, starting holes ──
+  // ── Step 2: Players & groups ──
   _step2(body) {
-    const players = Players.list;
-    if (!this.config.players.length && players.length) {
-      this.config.players = players.map(p => ({player:p, tee:p.tee||'Blue', playing:true, group:1, startHole:this.config.startHole}));
-    }
-    // Init groups
-    const activePlayers = this.config.players.filter(p=>p.playing);
-    const numGroups = this.config.groups.length || Math.max(1, Math.ceil(activePlayers.length / 4));
+    const allPlayers = Players.list;
+    const teeKeys = this.config.course ? Object.keys(this.config.course.tees) : ['Black','Gold','Blue','White','Red'];
+
+    // Init groups if needed
     if (!this.config.groups.length) {
-      this.config.groups = Array.from({length:numGroups},(_,i)=>({name:`Group ${i+1}`, startHole: this.config.startHole}));
+      const numGroups = parseInt(this.config.numGroups)||1;
+      this.config.groups = Array.from({length:numGroups},(_,i)=>({name:`Group ${i+1}`, startHole:this.config.startHole}));
+    }
+    // Init player assignments — default all to not playing
+    if (!this.config.players.length) {
+      this.config.players = allPlayers.map(p=>({player:p, tee:p.tee||'Blue', playing:false, group:1, startHole:this.config.startHole}));
     }
 
-    const teeKeys = this.config.course ? Object.keys(this.config.course.tees) : ['Black','Blue','White','Red'];
-    let html = `<div class="step-title">Players &amp; groups</div><div class="step-sub">Assign tees, groups${this.config.shotgun?' and starting holes':''}.</div>`;
+    const activePlayers = this.config.players.filter(p=>p.playing);
+    let html = `<div class="step-title">Players &amp; groups</div><div class="step-sub">Set number of groups then add players to each group.</div>`;
 
-    if (!players.length) {
-      html += `<div class="note amber">No players in group yet.</div><button class="ghost-btn" onclick="App.nav('players')">Add players →</button>`;
-    } else {
+    // Group count setter
+    html += `<div class="card card-pad" style="margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="flex:1;"><div style="font-size:14px;font-weight:500;">Number of groups</div></div>
+        <div class="stepper">
+          <button class="step-btn" onclick="RoundSetup.adjGroups(-1)">−</button>
+          <span class="step-val" id="num-groups-val">${this.config.groups.length}</span>
+          <button class="step-btn" onclick="RoundSetup.adjGroups(1)">+</button>
+        </div>
+      </div>
+    </div>`;
 
-      // Group management (only if shotgun or >1 group desired)
-      html += `<div class="section-label">Groups
-        <button onclick="RoundSetup.addGroup()" style="float:right;font-size:12px;color:var(--green);background:none;border:none;cursor:pointer;font-weight:500;">+ Add group</button>
-      </div>`;
+    // Groups with player assignment
+    this.config.groups.forEach((g, gi) => {
+      const groupPlayers = this.config.players.filter(pp=>pp.playing&&pp.group===gi+1);
+      const unassigned = this.config.players.filter(pp=>!pp.playing);
 
-      this.config.groups.forEach((g, gi) => {
-        const groupPlayers = this.config.players.filter((pp,i) => pp.playing && pp.group === gi+1);
-        html += `<div class="card card-pad" style="margin-bottom:10px;border-left:3px solid var(--green);">
-          <div class="flex-between" style="margin-bottom:${this.config.shotgun?'10px':'0'};">
-            <div style="font-size:14px;font-weight:600;">Group ${gi+1}</div>
-            <div style="font-size:12px;color:var(--text-2);">${groupPlayers.length} player${groupPlayers.length!==1?'s':''}</div>
-          </div>
-          ${this.config.shotgun ? `<div style="display:flex;align-items:center;gap:10px;">
-            <span style="font-size:12px;color:var(--text-2);flex:1;">Starting hole</span>
-            <div class="stepper">
-              <button class="step-btn" onclick="RoundSetup.adjGroupHole(${gi},-1)">−</button>
-              <span class="step-val" id="g${gi}-hole">${g.startHole}</span>
-              <button class="step-btn" onclick="RoundSetup.adjGroupHole(${gi},1)">+</button>
+      html += `<div class="card" style="margin-bottom:10px;border-left:3px solid var(--green);">
+        <div class="card-section" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>Group ${gi+1}${this.config.shotgun?' · Start H'+g.startHole:''}</span>
+          <span style="font-size:11px;color:var(--text-3);">${groupPlayers.length} player${groupPlayers.length!==1?'s':''}</span>
+        </div>`;
+
+      // Players in this group
+      groupPlayers.forEach((pp,pi) => {
+        const idx = this.config.players.indexOf(pp);
+        const teeBtns = teeKeys.map(t=>`<button class="tee-btn${pp.tee===t?' tee-active-'+t.toLowerCase():''}" onclick="RoundSetup.setTee(${idx},'${t}')">${t}</button>`).join('');
+        html += `<div class="player-row">
+          <div class="avatar">${pp.player.initials}</div>
+          <div class="player-info" style="flex:1;">
+            <div class="flex-between">
+              <div class="player-name">${pp.player.name}</div>
+              <button style="font-size:11px;color:var(--red);background:none;border:none;cursor:pointer;" onclick="RoundSetup.removeFromGroup(${idx})">Remove</button>
             </div>
-          </div>` : ''}
+            <div class="player-meta">HCP ${pp.player.hcp}</div>
+            <div class="tee-row" style="margin-top:5px;">${teeBtns}</div>
+            ${this.config.shotgun?`<div style="display:flex;align-items:center;gap:8px;margin-top:5px;"><span style="font-size:11px;color:var(--text-2);">Start H:</span><div class="stepper"><button class="step-btn" style="width:22px;height:22px;font-size:14px;" onclick="RoundSetup.adjPlayerHole(${idx},-1)">−</button><span style="font-size:13px;font-weight:500;min-width:20px;text-align:center;" id="p${idx}-hole">${pp.startHole||g.startHole}</span><button class="step-btn" style="width:22px;height:22px;font-size:14px;" onclick="RoundSetup.adjPlayerHole(${idx},1)">+</button></div></div>`:''}
+          </div>
         </div>`;
       });
 
-      // Player list with group assignment
-      html += `<div class="section-label">Players</div><div class="card">`;
-      html += this.config.players.map((pp,i) => {
-        const teeBtns = teeKeys.map(t => `<button class="tee-btn${pp.tee===t?' tee-active-'+t.toLowerCase():''}" onclick="RoundSetup.setTee(${i},'${t}')">${t}</button>`).join('');
-        const groupOpts = this.config.groups.map((g,gi) => `<option value="${gi+1}" ${pp.group===gi+1?'selected':''}>Grp ${gi+1}</option>`).join('');
-        return `<div class="player-row" style="flex-wrap:wrap;padding-bottom:12px;">
-          <div class="avatar${pp.playing?'':' muted'}" style="cursor:pointer;" onclick="RoundSetup.togglePlayer(${i})">${pp.player.initials}</div>
-          <div class="player-info" style="flex:1;">
-            <div class="flex-between">
-              <div class="player-name">${pp.player.name}${pp.playing?'':' <span style="color:var(--text-3);font-size:12px;">(out)</span>'}</div>
-              <select style="font-size:12px;padding:3px 6px;border-radius:6px;border:0.5px solid var(--border-2);font-family:var(--font-sans);color:var(--text);background:var(--bg-2);" onchange="RoundSetup.setGroup(${i},this.value)">${groupOpts}</select>
-            </div>
-            <div class="player-meta">HCP ${pp.player.hcp} · Quota ${pp.player.quota}</div>
-            <div class="tee-row" style="margin-top:6px;">${teeBtns}</div>
-            ${!this.config.shotgun && this.config.startHole > 1 ? `
-            <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
-              <span style="font-size:11px;color:var(--text-2);">Start hole:</span>
-              <div class="stepper">
-                <button class="step-btn" style="width:22px;height:22px;font-size:14px;" onclick="RoundSetup.adjPlayerHole(${i},-1)">−</button>
-                <span style="font-size:13px;font-weight:500;min-width:20px;text-align:center;" id="p${i}-hole">${pp.startHole}</span>
-                <button class="step-btn" style="width:22px;height:22px;font-size:14px;" onclick="RoundSetup.adjPlayerHole(${i},1)">+</button>
-              </div>
-            </div>` : ''}
+      // Add player to this group dropdown
+      if (unassigned.length) {
+        html += `<div style="padding:10px 0 4px;">
+          <select class="form-input" style="font-size:13px;" onchange="RoundSetup.addToGroup(${gi+1},this.value);this.value=''">
+            <option value="">+ Add player to Group ${gi+1}…</option>
+            ${unassigned.map((pp,i)=>{
+              const idx=this.config.players.indexOf(pp);
+              return `<option value="${idx}">${pp.player.name} · HCP ${pp.player.hcp}</option>`;
+            }).join('')}
+          </select>
+        </div>`;
+      }
+
+      // Shotgun start hole for group
+      if (this.config.shotgun) {
+        html += `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:0.5px solid var(--border);">
+          <span style="font-size:12px;color:var(--text-2);flex:1;">Group ${gi+1} starting hole</span>
+          <div class="stepper">
+            <button class="step-btn" onclick="RoundSetup.adjGroupHole(${gi},-1)">−</button>
+            <span class="step-val" id="g${gi}-hole">${g.startHole}</span>
+            <button class="step-btn" onclick="RoundSetup.adjGroupHole(${gi},1)">+</button>
           </div>
         </div>`;
-      }).join('');
+      }
       html += `</div>`;
+    });
 
-      html += `<div class="card card-pad">
-        <div class="toggle-row"><div><div class="toggle-label">Use GHIN handicaps</div><div class="toggle-sub">Apply strokes by hole handicap index</div></div><div class="toggle${this.config.useHandicap?' on':''}" onclick="RoundSetup.toggleHcp(this)"><div class="toggle-knob"></div></div></div>
-        <div class="toggle-row" style="border:none;"><div><div class="toggle-label">Net scoring</div><div class="toggle-sub">Net scores determine skins &amp; results</div></div><div class="toggle${this.config.netScoring?' on':''}" onclick="RoundSetup.toggleNet(this)"><div class="toggle-knob"></div></div></div>
-      </div>`;
+    // Unassigned players summary
+    const unassigned = this.config.players.filter(p=>!p.playing);
+    if (unassigned.length) {
+      html += `<div class="note amber">${unassigned.length} player${unassigned.length!==1?'s':''} not yet assigned to a group: ${unassigned.map(p=>p.player.first||p.player.name.split(' ')[0]).join(', ')}</div>`;
     }
+
+    html += `<div class="card card-pad">
+      <div class="toggle-row"><div><div class="toggle-label">Use GHIN handicaps</div><div class="toggle-sub">Apply strokes by hole handicap index</div></div><div class="toggle${this.config.useHandicap?' on':''}" onclick="RoundSetup.toggleHcp(this)"><div class="toggle-knob"></div></div></div>
+      <div class="toggle-row" style="border:none;"><div><div class="toggle-label">Net scoring</div><div class="toggle-sub">Net scores determine skins &amp; results</div></div><div class="toggle${this.config.netScoring?' on':''}" onclick="RoundSetup.toggleNet(this)"><div class="toggle-knob"></div></div></div>
+    </div>`;
 
     html += `<button class="primary-btn" onclick="RoundSetup.next()">Next — configure games</button>`;
     html += `<button class="ghost-btn" onclick="RoundSetup.back()">Back</button>`;
     body.innerHTML = html;
   },
 
-  addGroup() {
-    this.config.groups.push({name:`Group ${this.config.groups.length+1}`, startHole:this.config.startHole});
+  adjGroups(d) {
+    const newCount = Math.max(1, this.config.groups.length + d);
+    if (newCount > this.config.groups.length) {
+      this.config.groups.push({name:`Group ${newCount}`, startHole:this.config.startHole});
+    } else if (newCount < this.config.groups.length) {
+      // Move players from removed group to group 1
+      this.config.players.forEach(pp => { if (pp.group === this.config.groups.length) pp.group = 1; });
+      this.config.groups.pop();
+    }
+    this.renderStep();
+  },
+
+  addToGroup(groupNum, playerIdx) {
+    if (playerIdx === '' || playerIdx === undefined) return;
+    const idx = parseInt(playerIdx);
+    this.config.players[idx].playing = true;
+    this.config.players[idx].group = groupNum;
+    this.config.players[idx].startHole = this.config.groups[groupNum-1]?.startHole || this.config.startHole;
+    this.renderStep();
+  },
+
+  removeFromGroup(idx) {
+    this.config.players[idx].playing = false;
+    this.config.players[idx].group = 1;
     this.renderStep();
   },
 
@@ -292,12 +338,12 @@ const RoundSetup = {
     const pot    = buyin * active.length;
     const activeGames = Object.keys(c.games).filter(k=>c.games[k].on).map(k=>k[0].toUpperCase()+k.slice(1));
     const holesLabel = c.holes==='18'?'18 holes':c.holes==='front9'?'Front 9':'Back 9';
-    const startLabel = c.shotgun ? 'Shotgun (varies by group)' : `Hole ${c.startHole}`;
-
+    const startLabel = c.shotgun?'Shotgun (varies by group)':`Hole ${c.startHole}`;
     body.innerHTML = `
       <div class="step-title">Review &amp; start</div>
       <div class="step-sub">A round code will be generated — share it with your group to join.</div>
       <div class="card">
+        <div class="balance-row"><span class="balance-label">Round name</span><span style="font-weight:600;">${c.roundName||'Unnamed round'}</span></div>
         <div class="balance-row"><span class="balance-label">Course</span><span>${c.course.name}</span></div>
         <div class="balance-row"><span class="balance-label">Format</span><span>${holesLabel}</span></div>
         <div class="balance-row"><span class="balance-label">Starting hole</span><span>${startLabel}</span></div>
@@ -306,12 +352,7 @@ const RoundSetup = {
         <div class="balance-row"><span class="balance-label">Buy-in each</span><span>$${buyin}</span></div>
         <div class="balance-row" style="border-bottom:none;"><span class="balance-label b-green fw-6">Total pot</span><span class="b-green fw-6">$${pot}</span></div>
       </div>
-
-      ${c.groups.length > 1 ? `<div class="section-label">Group assignments</div><div class="card">${c.groups.map((g,gi)=>{
-        const gp=active.filter(pp=>pp.group===gi+1);
-        return `<div class="balance-row${gi===c.groups.length-1?'" style="border-bottom:none;"':'"'}><span class="balance-label">Group ${gi+1}${c.shotgun?' · H'+g.startHole:''}</span><span>${gp.map(pp=>pp.player.first||pp.player.name.split(' ')[0]).join(', ')||'—'}</span></div>`;
-      }).join('')}</div>` : ''}
-
+      ${c.groups.length>1?`<div class="section-label">Group assignments</div><div class="card">${c.groups.map((g,gi)=>{const gp=active.filter(pp=>pp.group===gi+1);return`<div class="balance-row${gi===c.groups.length-1?'" style="border-bottom:none;"':'"'}><span class="balance-label">Group ${gi+1}${c.shotgun?' · H'+g.startHole:''}</span><span>${gp.map(pp=>pp.player.first||pp.player.name.split(' ')[0]).join(', ')||'—'}</span></div>`;}).join('')}</div>`:''}
       <div class="section-label">Score entry</div>
       <div class="card card-pad">
         <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;">
@@ -375,6 +416,7 @@ const RoundSetup = {
     const sharedHoleIndexes = this._buildHoleIndexes();
 
     const round = {
+      roundName: c.roundName || 'Round ' + new Date().toLocaleDateString(),
       course: c.course,
       date: new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'}),
       players: playersWithHoles,
@@ -408,19 +450,26 @@ const RoundSetup = {
   _showCode(code, round) {
     const holesLabel = round.holes==='18'?'18 holes':round.holes==='front9'?'Front 9':'Back 9';
     document.getElementById('setup-body').innerHTML = `
-      <div style="text-align:center;padding:24px 0;">
-        <div style="font-size:14px;color:var(--text-2);margin-bottom:12px;">Round created! Share this code:</div>
-        <div style="font-size:52px;font-weight:700;color:var(--green);letter-spacing:6px;font-family:'DM Mono',monospace;">${code}</div>
-        <div style="font-size:13px;color:var(--text-2);margin-top:8px;">Players open Mullify → Join round → enter code</div>
-        <button class="outline-btn" style="margin-top:16px;" onclick="navigator.share?navigator.share({title:'Join my Mullify round',text:'Join my golf round!\\nCode: ${code}\\nhttps://mullify.vercel.app'}):navigator.clipboard.writeText('${code}').then(()=>alert('Code copied!'))">Share code</button>
+      <div style="text-align:center;padding:20px 0 16px;">
+        <div style="font-size:13px;color:var(--text-2);margin-bottom:8px;">Round created! Share this code with your group.</div>
+        <div style="background:var(--green-light);border:2px solid var(--green-mid);border-radius:var(--radius);padding:20px;margin:0 0 12px;">
+          <div style="font-size:13px;color:var(--green);margin-bottom:6px;font-weight:500;">${round.roundName}</div>
+          <div style="font-size:56px;font-weight:700;color:var(--green-dark);letter-spacing:8px;font-family:'DM Mono',monospace;">${code}</div>
+          <div style="font-size:12px;color:var(--green);margin-top:6px;">Players: Mullify → Join round → enter code</div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:center;">
+          <button class="outline-btn" onclick="navigator.clipboard.writeText('${code}').then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy code',2000)})">Copy code</button>
+          <button class="outline-btn" onclick="navigator.share&&navigator.share({title:'Join my Mullify round',text:'Join ${round.roundName}!\\nCode: ${code}\\nhttps://mullify.vercel.app'})">Share ↗</button>
+        </div>
       </div>
-      <div class="card card-pad" style="margin-top:8px;">
+      <div class="card card-pad" style="margin-bottom:10px;">
         <div class="balance-row"><span class="balance-label">Course</span><span>${round.course.name}</span></div>
         <div class="balance-row"><span class="balance-label">Format</span><span>${holesLabel} · Start H${round.startHole}</span></div>
         <div class="balance-row"><span class="balance-label">Players</span><span>${round.players.length}</span></div>
         <div class="balance-row" style="border-bottom:none;"><span class="balance-label">Pot</span><span class="b-green fw-6">$${round.pot}</span></div>
       </div>
-      <button class="primary-btn" onclick="Scorecard.loadFromDB('${code}');App.nav('scorecard');">Go to scorecard →</button>`;
+      <button class="primary-btn" onclick="Scorecard.loadFromDB('${code}');App.nav('scorecard');">Go to scorecard →</button>
+      <button class="ghost-btn" style="margin-top:8px;" onclick="App.nav('home')">Back to home</button>`;
   },
 
   next() { if(this.step<4){this.step++;this.renderStep();} },
