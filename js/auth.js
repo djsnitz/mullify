@@ -154,6 +154,7 @@ const Auth = {
   },
 
 
+  isAdmin() {
     return this.playerProfile?.isAdmin === true;
   },
 
