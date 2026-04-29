@@ -52,7 +52,7 @@ const Scorecard = {
     document.getElementById('sc-course-sub').textContent = `${players.length} players · ${r.date}${this.isAdmin?' · Admin':''}`;
     document.getElementById('sc-hole-display').textContent = `H${h+1}`;
 
-    // Hole nav — only show holes being played
+    // Hole nav — use shared holeIndexes or first player's indexes
     const holeIndexes = r.holeIndexes || Array.from({length:18},(_,i)=>i);
     document.getElementById('sc-hole-nav').innerHTML = holeIndexes.map(i => {
       const done = r.players.some(p => r.scores?.[p.id]?.[i] !== undefined);
@@ -79,6 +79,7 @@ const Scorecard = {
     if      (this.view==='entry')       this._renderEntry(body);
     else if (this.view==='leaderboard') this._renderLeaderboard(body);
     else if (this.view==='skins')       this._renderSkins(body);
+    else if (this.view==='groups')      this._renderGroups(body);
     else                                this._renderQuota(body);
   },
 
@@ -166,8 +167,8 @@ const Scorecard = {
         <div class="sec-top">
           <div class="avatar${isMe?'':''}">${p.initials}</div>
           <div class="sec-info">
-            <div class="sec-name">${p.name}${isMe?' <span style="font-size:10px;color:var(--green);">(you)</span>':''}</div>
-            <div class="sec-meta">${tee} tee · HCP ${p.hcp} · ${strokes} stroke${strokes!==1?'s':''} H${h+1}</div>
+            <div class="sec-name">${p.name}${isMe?' <span style="font-size:10px;color:var(--green);">(you)</span>':''}${p.group?' <span style="font-size:10px;background:var(--bg-2);color:var(--text-2);padding:1px 6px;border-radius:10px;">Grp '+p.group+'</span>':''}</div>
+            <div class="sec-meta">${tee} tee · HCP ${p.hcp} · ${strokes} stroke${strokes!==1?'s':''} H${h+1}${p.startHole&&p.startHole>1?' · Start H'+p.startHole:''}</div>
           </div>
           <div class="sec-pts">${r.games?.stableford?.on ? totalPts+' pts' : ''}</div>
         </div>
@@ -277,7 +278,7 @@ const Scorecard = {
   _renderLeaderboard(body) {
     const r = this.round;
     const ranked = (r.players||[]).map((p,i) => ({
-      i, name:p.name, initials:p.initials,
+      i, name:p.name, initials:p.initials, group:p.group||null,
       pts: this._totalPts(i),
       skins: Object.values(r.skinResults||{}).filter(s=>s&&!s.tied&&s.winnerId===p.id).length,
       played: Object.keys(r.scores?.[p.id]||{}).length
@@ -287,7 +288,7 @@ const Scorecard = {
       <div class="lb-row">
         <div class="lb-rank${rank===0?' first':''}">${['1st','2nd','3rd','4th','5th','6th'][rank]||rank+1+'th'}</div>
         <div class="avatar sm">${p.initials}</div>
-        <div class="lb-info"><div class="lb-name">${p.name}</div><div class="lb-sub">Thru ${p.played} holes</div></div>
+        <div class="lb-info"><div class="lb-name">${p.name}${p.group?' <span style="font-size:10px;color:var(--text-3);">Grp '+p.group+'</span>':''}</div><div class="lb-sub">Thru ${p.played} holes</div></div>
         <div class="lb-right"><div class="lb-pts">${p.pts} pts</div><div class="lb-skins">${p.skins} skin${p.skins!==1?'s':''}</div></div>
       </div>`).join('')}</div>`;
   },
@@ -321,7 +322,50 @@ const Scorecard = {
     body.innerHTML = html;
   },
 
-  _renderQuota(body) {
+  _renderGroups(body) {
+    const r = this.round;
+    const players = r.players || [];
+    const groups = r.groups || [{name:'Group 1', startHole:1}];
+    const isAdmin = this.isAdmin;
+
+    let html = `<div class="section-label">Group assignments${isAdmin?' <span style="font-size:11px;color:var(--text-3);">· Admin can move players</span>':''}</div>`;
+
+    groups.forEach((g, gi) => {
+      const groupPlayers = players.filter(p => p.group === gi+1);
+      html += `<div class="card" style="margin-bottom:10px;">
+        <div class="card-section">Group ${gi+1}${r.shotgun?' · Start hole '+g.startHole:''}</div>
+        ${groupPlayers.map((p, pi) => {
+          const globalIdx = players.indexOf(p);
+          return `<div class="player-row">
+            <div class="avatar">${p.initials}</div>
+            <div class="player-info">
+              <div class="player-name">${p.name}</div>
+              <div class="player-meta">HCP ${p.hcp} · ${p.tee} tee${p.startHole?' · Start H'+p.startHole:''}</div>
+            </div>
+            ${isAdmin ? `<select style="font-size:12px;padding:4px 6px;border-radius:6px;border:0.5px solid var(--border-2);font-family:var(--font-sans);" onchange="Scorecard.moveToGroup(${globalIdx},this.value)">
+              ${groups.map((_,i)=>`<option value="${i+1}" ${p.group===i+1?'selected':''}>Grp ${i+1}</option>`).join('')}
+            </select>` : ''}
+          </div>`;
+        }).join('')}
+        ${groupPlayers.length === 0 ? '<div style="padding:12px 0;font-size:13px;color:var(--text-3);">No players in this group</div>' : ''}
+      </div>`;
+    });
+
+    if (!isAdmin) {
+      html += `<div class="note">Only the admin can move players between groups.</div>`;
+    }
+
+    body.innerHTML = html;
+  },
+
+  async moveToGroup(playerIdx, newGroup) {
+    const r = this.round;
+    if (!r || !this.isAdmin) return;
+    r.players[playerIdx].group = parseInt(newGroup);
+    // Save updated players to Firebase
+    await DB.updateRound(this.roundCode, { players: r.players });
+    this._renderGroups(document.getElementById('sc-body'));
+  },
     const r = this.round;
     const pts = r.games?.quota?.pts || r.games?.stableford?.pts || {eagle:4,birdie:3,par:2,bogey:1,double:0,worse:0};
     let html = `<div class="card">`;
