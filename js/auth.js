@@ -106,7 +106,54 @@ const Auth = {
     this.playerProfile = profile;
   },
 
-  isAdmin() {
+  showCreateModal() {
+    const modal = document.getElementById('create-account-modal');
+    if (modal) { modal.style.display = 'flex'; }
+    const err = document.getElementById('create-error');
+    if (err) err.style.display = 'none';
+    ['create-email','create-password','create-password-confirm'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.value = '';
+    });
+  },
+
+  hideCreateModal() {
+    const modal = document.getElementById('create-account-modal');
+    if (modal) modal.style.display = 'none';
+  },
+
+  async submitCreate() {
+    const email    = document.getElementById('create-email')?.value.trim();
+    const password = document.getElementById('create-password')?.value;
+    const confirm  = document.getElementById('create-password-confirm')?.value;
+    const err      = document.getElementById('create-error');
+    const btn      = document.getElementById('create-btn');
+
+    if (!email || !password) { this._showCreateError('Please fill in all fields.'); return; }
+    if (password.length < 6) { this._showCreateError('Password must be at least 6 characters.'); return; }
+    if (password !== confirm) { this._showCreateError('Passwords do not match.'); return; }
+
+    btn.textContent = 'Creating account…';
+    btn.disabled = true;
+    try {
+      await firebase.auth().createUserWithEmailAndPassword(email, password);
+      this.hideCreateModal();
+    } catch(e) {
+      if (e.code === 'auth/email-already-in-use') {
+        this._showCreateError('An account with that email already exists. Sign in instead.');
+      } else {
+        this._showCreateError(e.message);
+      }
+      btn.textContent = 'Create account';
+      btn.disabled = false;
+    }
+  },
+
+  _showCreateError(msg) {
+    const el = document.getElementById('create-error');
+    if (el) { el.textContent = msg; el.style.display = 'block'; }
+  },
+
+
     return this.playerProfile?.isAdmin === true;
   },
 
