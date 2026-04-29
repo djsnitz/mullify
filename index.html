@@ -72,11 +72,11 @@
       <form onsubmit="return false;">
       <div class="form-group">
         <label class="form-label">Email</label>
-        <input class="form-input" type="email" id="login-email" placeholder="you@example.com" />
+        <input class="form-input" type="email" id="login-email" placeholder="you@example.com" autocomplete="email" />
       </div>
       <div class="form-group">
         <label class="form-label">Password</label>
-        <input class="form-input" type="password" id="login-password" placeholder="••••••••" />
+        <input class="form-input" type="password" id="login-password" placeholder="••••••••" autocomplete="current-password" />
       </div>
       <button class="primary-btn" id="email-login-btn" onclick="
         const btn=document.getElementById('email-login-btn');
@@ -109,11 +109,11 @@
       </div>
       <div class="form-group">
         <label class="form-label">Password</label>
-        <input class="form-input" type="password" id="create-password" placeholder="At least 6 characters" />
+        <input class="form-input" type="password" id="create-password" placeholder="At least 6 characters" autocomplete="new-password" />
       </div>
       <div class="form-group">
         <label class="form-label">Confirm password</label>
-        <input class="form-input" type="password" id="create-password-confirm" placeholder="Re-enter password" />
+        <input class="form-input" type="password" id="create-password-confirm" placeholder="Re-enter password" autocomplete="new-password" />
       </div>
       <button class="primary-btn" id="create-btn" onclick="Auth.submitCreate()" style="margin-bottom:8px;">Create account</button>
       <button type="button" onclick="Auth.hideCreateModal()" style="width:100%;padding:11px;border-radius:var(--radius-sm);border:0.5px solid var(--border-2);background:none;font-size:13px;cursor:pointer;">Cancel</button>
