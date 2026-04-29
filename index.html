@@ -69,6 +69,7 @@
         Continue with Google
       </button>
       <div class="divider">or sign in with email</div>
+      <form onsubmit="return false;">
       <div class="form-group">
         <label class="form-label">Email</label>
         <input class="form-input" type="email" id="login-email" placeholder="you@example.com" />
@@ -83,6 +84,7 @@
         Auth.signInEmail(document.getElementById('login-email').value,document.getElementById('login-password').value)
           .finally(()=>{btn.textContent='Sign in';btn.disabled=false;});
       " style="margin-bottom:8px;">Sign in</button>
+      </form>
       <div style="text-align:center;margin-top:4px;">
         <span style="font-size:13px;color:var(--text-2);">New to Mullify? </span>
         <button onclick="Auth.showCreateModal()" style="font-size:13px;color:var(--green);background:none;border:none;font-weight:500;cursor:pointer;">Create an account</button>
@@ -100,6 +102,7 @@
       </div>
       <div style="font-size:13px;color:var(--text-2);margin-bottom:16px;">Enter your details to join your golf group.</div>
       <div id="create-error" class="auth-error"></div>
+      <form onsubmit="return false;">
       <div class="form-group">
         <label class="form-label">Email</label>
         <input class="form-input" type="email" id="create-email" placeholder="you@example.com" />
@@ -113,7 +116,8 @@
         <input class="form-input" type="password" id="create-password-confirm" placeholder="Re-enter password" />
       </div>
       <button class="primary-btn" id="create-btn" onclick="Auth.submitCreate()" style="margin-bottom:8px;">Create account</button>
-      <button onclick="Auth.hideCreateModal()" style="width:100%;padding:11px;border-radius:var(--radius-sm);border:0.5px solid var(--border-2);background:none;font-size:13px;cursor:pointer;">Cancel</button>
+      <button type="button" onclick="Auth.hideCreateModal()" style="width:100%;padding:11px;border-radius:var(--radius-sm);border:0.5px solid var(--border-2);background:none;font-size:13px;cursor:pointer;">Cancel</button>
+      </form>
     </div>
   </div>
 
@@ -256,8 +260,8 @@
 <script src="js/firebase-config.js"></script>
 <script src="js/store.js"></script>
 <script src="js/courses-data.js"></script>
-<script src="js/auth.js"></script>
 <script src="js/db.js"></script>
+<script src="js/auth.js"></script>
 <script src="js/players.js"></script>
 <script src="js/courses.js"></script>
 <script src="js/round-setup.js"></script>
