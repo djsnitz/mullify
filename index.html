@@ -77,7 +77,18 @@
         <label class="form-label">Password</label>
         <input class="form-input" type="password" id="login-password" placeholder="••••••••" />
       </div>
-      <button class="primary-btn" onclick="Auth.signInEmail(document.getElementById('login-email').value,document.getElementById('login-password').value)" style="margin-bottom:0;">Sign in / Create account</button>
+      <button class="primary-btn" id="email-login-btn" onclick="
+        const btn=document.getElementById('email-login-btn');
+        btn.textContent='Signing in…';btn.disabled=true;
+        Auth.signInEmail(document.getElementById('login-email').value,document.getElementById('login-password').value)
+          .finally(()=>{btn.textContent='Sign in';btn.disabled=false;});
+      " style="margin-bottom:8px;">Sign in</button>
+      <button class="ghost-btn" id="email-create-btn" onclick="
+        const btn=document.getElementById('email-create-btn');
+        btn.textContent='Creating account…';btn.disabled=true;
+        Auth.createEmail(document.getElementById('login-email').value,document.getElementById('login-password').value)
+          .finally(()=>{btn.textContent='Create new account';btn.disabled=false;});
+      " style="margin-bottom:0;">Create new account</button>
     </div>
     <div class="join-link" onclick="App.showJoinWithoutLogin()">Have a round code? Join without signing in →</div>
   </div>
