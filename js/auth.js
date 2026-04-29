@@ -111,9 +111,11 @@ const Auth = {
     if (modal) { modal.style.display = 'flex'; }
     const err = document.getElementById('create-error');
     if (err) err.style.display = 'none';
-    ['create-email','create-password','create-password-confirm'].forEach(id => {
+    ['create-first','create-last','create-phone','create-ghin','create-email','create-password','create-password-confirm'].forEach(id => {
       const el = document.getElementById(id); if (el) el.value = '';
     });
+    const btn = document.getElementById('create-btn');
+    if (btn) { btn.textContent = 'Create account'; btn.disabled = false; }
   },
 
   hideCreateModal() {
@@ -122,20 +124,55 @@ const Auth = {
   },
 
   async submitCreate() {
+    const first    = document.getElementById('create-first')?.value.trim();
+    const last     = document.getElementById('create-last')?.value.trim();
+    const phone    = document.getElementById('create-phone')?.value.trim();
+    const ghin     = document.getElementById('create-ghin')?.value.trim();
     const email    = document.getElementById('create-email')?.value.trim();
     const password = document.getElementById('create-password')?.value;
     const confirm  = document.getElementById('create-password-confirm')?.value;
-    const err      = document.getElementById('create-error');
     const btn      = document.getElementById('create-btn');
 
-    if (!email || !password) { this._showCreateError('Please fill in all fields.'); return; }
-    if (password.length < 6) { this._showCreateError('Password must be at least 6 characters.'); return; }
-    if (password !== confirm) { this._showCreateError('Passwords do not match.'); return; }
+    if (!first || !last)       { this._showCreateError('Please enter your first and last name.'); return; }
+    if (!email || !password)   { this._showCreateError('Please enter email and password.'); return; }
+    if (password.length < 6)   { this._showCreateError('Password must be at least 6 characters.'); return; }
+    if (password !== confirm)  { this._showCreateError('Passwords do not match.'); return; }
 
     btn.textContent = 'Creating account…';
     btn.disabled = true;
+
     try {
-      await firebase.auth().createUserWithEmailAndPassword(email, password);
+      // Create Firebase auth account
+      const cred = await firebase.auth().createUserWithEmailAndPassword(email, password);
+      const uid  = cred.user.uid;
+
+      // Auto-create player profile in DB
+      const hcp   = 18;
+      const quota = 18;
+      const player = {
+        name: first + ' ' + last,
+        first, last,
+        initials: (first[0] + last[0]).toUpperCase(),
+        email, phone: phone||'', ghin: ghin||'',
+        hcp, quota,
+        tee: 'Blue',
+        history: [],
+        linkedUid: uid,
+        createdAt: Date.now()
+      };
+      const saved = await DB.savePlayer(player);
+
+      // Link auth profile to player
+      const profile = {
+        uid, email,
+        displayName: first + ' ' + last,
+        playerId: saved.id,
+        playerName: first + ' ' + last,
+        linkedAt: Date.now()
+      };
+      await DB.saveUserProfile(uid, profile);
+      this.playerProfile = profile;
+
       this.hideCreateModal();
     } catch(e) {
       if (e.code === 'auth/email-already-in-use') {
