@@ -94,25 +94,44 @@
   </div>
 
   <!-- Create Account Modal -->
-  <div id="create-account-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;display:none;align-items:center;justify-content:center;padding:24px;">
-    <div style="background:white;border-radius:20px;padding:24px;width:100%;max-width:360px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+  <div id="create-account-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:flex-start;justify-content:center;padding:16px;overflow-y:auto;">
+    <div style="background:white;border-radius:20px;padding:24px;width:100%;max-width:360px;margin:auto;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
         <div style="font-size:18px;font-weight:600;">Create account</div>
         <button onclick="Auth.hideCreateModal()" style="background:none;border:none;font-size:24px;color:var(--text-2);cursor:pointer;line-height:1;">×</button>
       </div>
-      <div style="font-size:13px;color:var(--text-2);margin-bottom:16px;">Enter your details to join your golf group.</div>
+      <div style="font-size:13px;color:var(--text-2);margin-bottom:16px;">Fill in your details to join your golf group.</div>
       <div id="create-error" class="auth-error"></div>
       <form onsubmit="return false;">
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px;">
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">First name *</label>
+          <input class="form-input" type="text" id="create-first" placeholder="Mike" autocomplete="given-name" />
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">Last name *</label>
+          <input class="form-input" type="text" id="create-last" placeholder="Johnson" autocomplete="family-name" />
+        </div>
+      </div>
       <div class="form-group">
-        <label class="form-label">Email</label>
+        <label class="form-label">Phone number</label>
+        <input class="form-input" type="tel" id="create-phone" placeholder="555-123-4567" autocomplete="tel" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">GHIN number (optional)</label>
+        <input class="form-input" type="text" id="create-ghin" placeholder="e.g. 1234567" />
+      </div>
+      <div style="height:1px;background:var(--border);margin:16px 0;"></div>
+      <div class="form-group">
+        <label class="form-label">Email *</label>
         <input class="form-input" type="email" id="create-email" placeholder="you@example.com" autocomplete="email" />
       </div>
       <div class="form-group">
-        <label class="form-label">Password</label>
+        <label class="form-label">Password *</label>
         <input class="form-input" type="password" id="create-password" placeholder="At least 6 characters" autocomplete="new-password" />
       </div>
       <div class="form-group">
-        <label class="form-label">Confirm password</label>
+        <label class="form-label">Confirm password *</label>
         <input class="form-input" type="password" id="create-password-confirm" placeholder="Re-enter password" autocomplete="new-password" />
       </div>
       <button class="primary-btn" id="create-btn" onclick="Auth.submitCreate()" style="margin-bottom:8px;">Create account</button>
@@ -178,12 +197,14 @@
     <div class="top-bar"><button class="back-btn" onclick="App.back()">‹</button><div class="top-bar-title">Add player</div><div></div></div>
     <div class="screen-body">
       <div class="avatar-preview-wrap"><div class="avatar-lg" id="add-avatar-preview">?</div></div>
-      <div class="form-group"><label class="form-label">First name</label><input class="form-input" type="text" id="add-first" placeholder="e.g. Mike" oninput="Players.updatePreview()" /></div>
-      <div class="form-group"><label class="form-label">Last name</label><input class="form-input" type="text" id="add-last" placeholder="e.g. Johnson" oninput="Players.updatePreview()" /></div>
+      <div class="form-group"><label class="form-label">First name *</label><input class="form-input" type="text" id="add-first" placeholder="e.g. Mike" oninput="Players.updatePreview()" autocomplete="given-name" /></div>
+      <div class="form-group"><label class="form-label">Last name *</label><input class="form-input" type="text" id="add-last" placeholder="e.g. Johnson" oninput="Players.updatePreview()" autocomplete="family-name" /></div>
+      <div class="form-group"><label class="form-label">Email</label><input class="form-input" type="email" id="add-email" placeholder="e.g. mike@example.com" autocomplete="email" /></div>
+      <div class="form-group"><label class="form-label">Phone number</label><input class="form-input" type="tel" id="add-phone" placeholder="e.g. 555-123-4567" autocomplete="tel" /></div>
       <div class="form-group"><label class="form-label">GHIN number (optional)</label><div class="input-row"><input class="form-input" type="text" id="add-ghin" placeholder="e.g. 1234567" style="flex:1;" /><button class="outline-btn" onclick="Players.lookupGHIN()">Look up</button></div><div id="ghin-result" class="info-box" style="display:none;"></div></div>
       <div class="form-group"><label class="form-label">Handicap index</label><input class="form-input" type="number" id="add-hcp" placeholder="e.g. 12.4" step="0.1" min="0" max="54" /></div>
       <div class="form-group"><label class="form-label">Preferred tee</label><div class="tee-row" id="add-tee-row"><button class="tee-btn" data-tee="Black" onclick="Players.selectTee(this)">Black</button><button class="tee-btn tee-active-blue" data-tee="Blue" onclick="Players.selectTee(this)">Blue</button><button class="tee-btn" data-tee="White" onclick="Players.selectTee(this)">White</button><button class="tee-btn" data-tee="Red" onclick="Players.selectTee(this)">Red</button></div></div>
-      <div class="form-group"><label class="form-label">Quota (leave blank to auto-set)</label><input class="form-input" type="number" id="add-quota" placeholder="e.g. 20" /></div>
+      <div class="form-group"><label class="form-label">Quota (leave blank to auto-set from handicap)</label><input class="form-input" type="number" id="add-quota" placeholder="e.g. 20" /></div>
       <button class="primary-btn" id="add-player-btn" onclick="Players.save()" disabled>Add to group</button>
     </div>
   </div>
