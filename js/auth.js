@@ -106,6 +106,25 @@ const Auth = {
     this.playerProfile = profile;
   },
 
+  async forgotPassword(email) {
+    if (!email) {
+      this._showError('Enter your email above then tap Forgot password.');
+      return;
+    }
+    try {
+      await firebase.auth().sendPasswordResetEmail(email);
+      const el = document.getElementById('auth-error');
+      if (el) {
+        el.style.display = 'block';
+        el.style.background = 'var(--green-light)';
+        el.style.color = 'var(--green-dark)';
+        el.textContent = 'Password reset email sent! Check your inbox.';
+      }
+    } catch(e) {
+      this._showError(e.message);
+    }
+  },
+
   showCreateModal() {
     const modal = document.getElementById('create-account-modal');
     if (modal) { modal.style.display = 'flex'; }
