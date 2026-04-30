@@ -334,8 +334,9 @@ const App = {
             <div style="font-family:monospace;font-size:20px;font-weight:700;color:var(--green);letter-spacing:4px;">${r.code}</div>
             <div style="display:flex;gap:6px;">
               <button class="outline-btn" style="font-size:12px;padding:6px 10px;" onclick="event.stopPropagation();navigator.clipboard.writeText('${r.code}').then(()=>alert('Code copied!'))">Copy</button>
-              ${isPending&&Auth.isAdmin()?`<button class="primary-btn" style="width:auto;padding:6px 12px;font-size:12px;margin:0;" onclick="event.stopPropagation();App._startPendingRound('${r.code}')">Start round</button>`:''}
+              ${isPending&&Auth.isAdmin()?`<button class="primary-btn" style="width:auto;padding:6px 12px;font-size:12px;margin:0;" onclick="event.stopPropagation();App._startPendingRound('${r.code}')">Start</button>`:''}
               ${!isPending?`<button class="primary-btn" style="width:auto;padding:6px 12px;font-size:12px;margin:0;" onclick="event.stopPropagation();Scorecard.loadFromDB('${r.code}');App.nav('scorecard');">Resume</button>`:''}
+              ${Auth.isAdmin()?`<button class="outline-btn" style="font-size:12px;padding:6px 10px;color:var(--red);border-color:var(--red);" onclick="event.stopPropagation();App._deleteRound('${r.code}')">Delete</button>`:''}
             </div>
           </div>
         </div>`;
@@ -376,9 +377,10 @@ const App = {
 
     if (isAdmin && isPending) {
       html += `<button class="primary-btn" onclick="App._startPendingRound('${code}')">Start this round</button>`;
-      html += `<button class="ghost-btn" style="margin-top:8px;color:var(--red);border-color:var(--red);" onclick="App._cancelRound('${code}')">Cancel round</button>`;
+      html += `<button class="ghost-btn" style="margin-top:8px;color:var(--red);border-color:var(--red);" onclick="App._deleteRound('${code}')">Delete round</button>`;
     } else if (!isPending) {
       html += `<button class="primary-btn" onclick="Scorecard.loadFromDB('${code}');App.nav('scorecard');">Go to scorecard →</button>`;
+      if (isAdmin) html += `<button class="ghost-btn" style="margin-top:8px;color:var(--red);border-color:var(--red);" onclick="App._deleteRound('${code}')">Delete round</button>`;
     }
 
     body.innerHTML = html;
@@ -392,6 +394,15 @@ const App = {
     Store.saveActiveRound({...round, code});
     await Scorecard.loadFromDB(code);
     this.nav('scorecard');
+  },
+
+  async _deleteRound(code) {
+    if (!confirm('Delete this round permanently? This cannot be undone.')) return;
+    await DB.deleteRound(code);
+    // Clear active round if it was this one
+    const active = Store.getActiveRound();
+    if (active?.code === code) Store.clearActiveRound();
+    await this._renderPendingRounds();
   },
 
   async _cancelRound(code) {

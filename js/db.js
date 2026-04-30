@@ -133,6 +133,10 @@ const DB = {
     });
   },
 
+  async deleteRound(code) {
+    await this._ref(`rounds/${code}`).remove();
+  },
+
   async closeRound(code, summary) {
     await this._ref(`rounds/${code}/status`).set('complete');
     await this._ref(`rounds/${code}/summary`).set(summary);

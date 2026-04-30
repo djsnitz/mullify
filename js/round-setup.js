@@ -333,9 +333,22 @@ const RoundSetup = {
   },
 
   toggleGame(key,el) { el.classList.toggle('on'); this.config.games[key].on=el.classList.contains('on'); this.renderStep(); },
-  setBuyin(key,val)  { this.config.games[key].buyin=parseFloat(val)||0; },
+  setBuyin(key,val)  { this.config.games[key].buyin = parseFloat(val) || 0; },
   setPlaces(v)       { this.config.games.stableford.places=parseInt(v); },
   adjPts(gk,sk,d)    { this.config.games[gk].pts[sk]=Math.max(0,(this.config.games[gk].pts[sk]||0)+d); this.renderStep(); },
+
+  // Read all buyin inputs from DOM before leaving step 3
+  _flushBuyins() {
+    ['skins','stableford','ctp','quota'].forEach(key => {
+      // Find input by searching all number inputs in the games section
+      const inputs = document.querySelectorAll('.form-input[type="number"]');
+      inputs.forEach(inp => {
+        if (inp.getAttribute('oninput') && inp.getAttribute('oninput').includes(`'${key}'`)) {
+          this.config.games[key].buyin = parseFloat(inp.value) || 0;
+        }
+      });
+    });
+  },
 
   // ── Step 4: Review ──
   _step4(body) {
@@ -490,6 +503,9 @@ const RoundSetup = {
       <button class="ghost-btn" style="margin-top:8px;" onclick="App.nav('home')">Back to home</button>`;
   },
 
-  next() { if(this.step<4){this.step++;this.renderStep();} },
+  next() {
+    if (this.step === 3) this._flushBuyins();
+    if(this.step<4){this.step++;this.renderStep();}
+  },
   back() { if(this.step>1){this.step--;this.renderStep();}else App.back(); }
 };
