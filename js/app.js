@@ -72,6 +72,34 @@ const Payouts = {
       });
     }
 
+    // ── Low Gross: lowest total gross score wins ──
+    if (r.games?.lowgross?.on) {
+      const lgPot = r.games.lowgross.buyin * players.length;
+      const places = r.games.lowgross.places||2;
+      const grossScores = players.map((p)=>{
+        const total = Object.values(r.scores?.[p.id]||{}).reduce((a,b)=>a+(b||0),0);
+        return -total; // negate so higher = better for distributeWithTies (which sorts desc)
+      });
+      this._distributeWithTies(winnings, grossScores, places, lgPot);
+    }
+
+    // ── Net Score: lowest total net score wins ──
+    if (r.games?.netscore?.on) {
+      const nsPot = r.games.netscore.buyin * players.length;
+      const places = r.games.netscore.places||2;
+      const netScores = players.map((p,i)=>{
+        const tee = p.tee||'Blue';
+        const hd = r.course?.tees?.[tee]||Object.values(r.course?.tees||{})[0];
+        const total = (r.holeIndexes||Array.from({length:18},(_,i)=>i)).reduce((sum,h)=>{
+          const gross = r.scores?.[p.id]?.[h];
+          if(gross===undefined||gross===null) return sum;
+          return sum + (Scorecard._net?Scorecard._net(gross,p.hcp,hd?.hcp?.[h]||1):gross);
+        },0);
+        return -total; // negate: lower net = better
+      });
+      this._distributeWithTies(winnings, netScores, places, nsPot);
+    }
+
     return winnings;
   },
 

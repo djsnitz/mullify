@@ -20,7 +20,9 @@ const RoundSetup = {
         skins:      { on:true,  buyin:5,  pctPot:50 },
         stableford: { on:true,  buyin:10, pctPot:40, places:2, pts:{eagle:4,birdie:3,par:2,bogey:1,double:0,worse:0} },
         ctp:        { on:false, buyin:5,  pctPot:10, holes:[] },
-        quota:      { on:false, buyin:10, pctPot:0,  places:2, pts:{eagle:5,birdie:4,par:3,bogey:2,double:1,worse:0} }
+        quota:      { on:false, buyin:10, pctPot:0,  places:2, pts:{eagle:5,birdie:4,par:3,bogey:2,double:1,worse:0} },
+        lowgross:   { on:false, buyin:10, places:2 },
+        netscore:   { on:false, buyin:10, places:2 }
       }
     };
     this.renderStep();
@@ -32,10 +34,11 @@ const RoundSetup = {
       `<div class="step-dot ${i<this.step?'done':i===this.step?'active':''}"></div>`
     ).join('');
     const body = document.getElementById('setup-body');
-    if      (this.step===1) this._step1(body);
-    else if (this.step===2) this._step2(body);
-    else if (this.step===3) this._step3(body);
-    else                    this._step4(body);
+    body.innerHTML = `<div class="empty-state"><div class="empty-title">Loading…</div></div>`;
+    if      (this.step===1) { this._step1(body); }
+    else if (this.step===2) { this._step2(body).then(()=>{}); }
+    else if (this.step===3) { this._step3(body); }
+    else                    { this._step4(body); }
   },
 
   // ── Step 1: Course + holes + shotgun ──
@@ -130,7 +133,11 @@ const RoundSetup = {
   toggleShotgun(el) { el.classList.toggle('on'); this.config.shotgun = el.classList.contains('on'); this.renderStep(); },
 
   // ── Step 2: Players & groups ──
-  _step2(body) {
+  async _step2(body) {
+    // Ensure players are loaded
+    if (!Players.list.length) {
+      try { await Players.load(); } catch(e) {}
+    }
     const allPlayers = Players.list;
     const teeKeys = this.config.course ? Object.keys(this.config.course.tees) : ['Black','Gold','Blue','White','Red'];
 
@@ -140,7 +147,7 @@ const RoundSetup = {
       this.config.groups = Array.from({length:numGroups},(_,i)=>({name:`Group ${i+1}`, startHole:this.config.startHole}));
     }
     // Init player assignments — default all to not playing
-    if (!this.config.players.length) {
+    if (!this.config.players.length && allPlayers.length) {
       this.config.players = allPlayers.map(p=>({player:p, tee:p.tee||'Blue', playing:false, group:1, startHole:this.config.startHole}));
     }
 
@@ -309,7 +316,7 @@ const RoundSetup = {
         ${gm.on?`<div style="display:flex;gap:10px;align-items:center;margin-bottom:${extra?'12px':'0'};">
           <label style="font-size:12px;color:var(--text-2);flex:1;">Buy-in per player</label>
           <span style="color:var(--text-2);">$</span>
-          <input class="form-input" type="number" value="${gm.buyin}" min="0" style="width:70px;" oninput="RoundSetup.setBuyin('${key}',this.value)" />
+          <input class="form-input" type="number" id="buyin-${key}" value="${gm.buyin}" min="0" style="width:70px;" oninput="RoundSetup.setBuyin('${key}',this.value)" />
         </div>${extra}`:''}
       </div>`;
     };
@@ -324,6 +331,8 @@ const RoundSetup = {
     html += gameBlock('stableford','Stableford','Points vs net par · top scores paid',sfExtra);
     html += gameBlock('ctp','Closest to the pin','Par 3 holes · closest tee shot wins');
     html += gameBlock('quota','Quota','Beat your points target to win',quotaExtra);
+    html += gameBlock('lowgross','Low gross','Lowest gross score wins',`<div style="display:flex;gap:10px;align-items:center;"><label style="font-size:12px;color:var(--text-2);flex:1;">Top places paid</label><select class="form-input" style="width:auto;" onchange="RoundSetup.config.games.lowgross.places=parseInt(this.value)"><option ${g.lowgross?.places===1?'selected':''} value="1">1st only</option><option ${g.lowgross?.places===2?'selected':''} value="2">Top 2</option><option ${g.lowgross?.places===3?'selected':''} value="3">Top 3</option></select></div>`);
+    html += gameBlock('netscore','Net score','Lowest net score wins (vs handicap)',`<div style="display:flex;gap:10px;align-items:center;"><label style="font-size:12px;color:var(--text-2);flex:1;">Top places paid</label><select class="form-input" style="width:auto;" onchange="RoundSetup.config.games.netscore.places=parseInt(this.value)"><option ${g.netscore?.places===1?'selected':''} value="1">1st only</option><option ${g.netscore?.places===2?'selected':''} value="2">Top 2</option><option ${g.netscore?.places===3?'selected':''} value="3">Top 3</option></select></div>`);
     html += `<div class="card card-pad" style="background:var(--green-light);border-color:var(--green-mid);">
       <div class="flex-between"><div style="font-size:13px;color:var(--green-dark);">Total pot</div><div style="font-size:22px;font-weight:700;color:var(--green-dark);">$${totalPot}</div></div>
       <div style="font-size:12px;color:var(--green);">${activePlayers} players · $${totalBuyin} each</div>
@@ -342,13 +351,8 @@ const RoundSetup = {
   // Read all buyin inputs from DOM before leaving step 3
   _flushBuyins() {
     ['skins','stableford','ctp','quota'].forEach(key => {
-      // Find input by searching all number inputs in the games section
-      const inputs = document.querySelectorAll('.form-input[type="number"]');
-      inputs.forEach(inp => {
-        if (inp.getAttribute('oninput') && inp.getAttribute('oninput').includes(`'${key}'`)) {
-          this.config.games[key].buyin = parseFloat(inp.value) || 0;
-        }
-      });
+      const el = document.getElementById(`buyin-${key}`);
+      if (el) this.config.games[key].buyin = parseFloat(el.value) || 0;
     });
   },
 

@@ -347,19 +347,45 @@ const Scorecard = {
 
   _renderLeaderboard(body) {
     const r = this.round;
-    const ranked = (r.players||[]).map((p,i) => ({
-      i, name:p.name, initials:p.initials, group:p.group||null,
-      pts: this._totalPts(i),
-      skins: Object.values(r.skinResults||{}).filter(s=>s&&!s.tied&&s.winnerId===p.id).length,
-      played: Object.keys(r.scores?.[p.id]||{}).length
-    })).sort((a,b)=>b.pts-a.pts);
+    const ranked = (r.players||[]).map((p,i) => {
+      const tee = p.tee||'Blue';
+      const hd = r.course?.tees?.[tee]||Object.values(r.course?.tees||{})[0];
+      // Gross total
+      const grossTotal = Object.values(r.scores?.[p.id]||{}).reduce((a,b)=>a+(b||0),0);
+      // Net total (gross minus all strokes given)
+      const netTotal = (r.holeIndexes||Array.from({length:18},(_,i)=>i)).reduce((sum,h)=>{
+        const gross = r.scores?.[p.id]?.[h];
+        if(gross===undefined||gross===null) return sum;
+        return sum + this._net(gross, p.hcp, hd?.hcp?.[h]||1);
+      },0);
+      // Course par for holes played
+      const holesPlayed = Object.keys(r.scores?.[p.id]||{});
+      const parTotal = holesPlayed.reduce((sum,h)=>sum+(hd?.par?.[parseInt(h)]||4),0);
+      const grossVsPar = grossTotal - parTotal;
+      return {
+        i, name:p.name, initials:p.initials, group:p.group||null,
+        pts: this._totalPts(i),
+        skins: Object.values(r.skinResults||{}).filter(s=>s&&!s.tied&&s.winnerId===p.id).length,
+        played: holesPlayed.length,
+        grossTotal, netTotal, parTotal,
+        grossVsPar
+      };
+    }).sort((a,b)=>b.pts-a.pts);
+
+    const fmt = (n) => n===0?'E':n>0?`+${n}`:String(n);
 
     body.innerHTML = `<div class="card">${ranked.map((p,rank)=>`
       <div class="lb-row">
         <div class="lb-rank${rank===0?' first':''}">${['1st','2nd','3rd','4th','5th','6th'][rank]||rank+1+'th'}</div>
         <div class="avatar sm">${p.initials}</div>
-        <div class="lb-info"><div class="lb-name">${p.name}${p.group?' <span style="font-size:10px;color:var(--text-3);">Grp '+p.group+'</span>':''}</div><div class="lb-sub">Thru ${p.played} holes</div></div>
-        <div class="lb-right"><div class="lb-pts">${p.pts} pts</div><div class="lb-skins">${p.skins} skin${p.skins!==1?'s':''}</div></div>
+        <div class="lb-info">
+          <div class="lb-name">${p.name}${p.group?' <span style="font-size:10px;color:var(--text-3);">Grp '+p.group+'</span>':''}</div>
+          <div class="lb-sub">Thru ${p.played} · Gross ${p.grossTotal>0?p.grossTotal:'—'} (${p.grossTotal>0?fmt(p.grossVsPar):'—'}) · Net ${p.netTotal>0?p.netTotal:'—'}</div>
+        </div>
+        <div class="lb-right">
+          <div class="lb-pts">${p.pts} pts</div>
+          <div class="lb-skins">${p.skins} skin${p.skins!==1?'s':''}</div>
+        </div>
       </div>`).join('')}</div>`;
   },
 
