@@ -101,6 +101,10 @@ const DB = {
     await this._ref(`rounds/${code}`).update(data);
   },
 
+  async saveCTPResult(roundCode, hole, result) {
+    await this._ref(`rounds/${roundCode}/ctpResults/${hole}`).set(result);
+  },
+
   async saveScore(roundCode, playerId, hole, gross) {
     await this._ref(`rounds/${roundCode}/scores/${playerId}/${hole}`).set(gross);
     await this._ref(`rounds/${roundCode}/lastUpdated`).set(Date.now());

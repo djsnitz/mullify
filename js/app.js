@@ -31,63 +31,126 @@ const Payouts = {
     if (!r) return [];
     const players = r.players||[];
     const winnings = players.map(()=>0);
-    const sc = new Proxy(Scorecard,{});
 
-    // Skins
+    // ── Skins: no rounding, exact decimals ──
     if (r.games?.skins?.on) {
       const skinPot = r.games.skins.buyin * players.length;
       const won = Object.values(r.skinResults||{}).filter(s=>s&&!s.tied);
-      const perSkin = won.length>0 ? skinPot/won.length : 0;
+      const perSkin = won.length>0 ? skinPot/won.length : 0; // no rounding
       won.forEach(s=>{ if(s.winner!==undefined) winnings[s.winner]+=perSkin; });
     }
 
-    // Stableford
+    // ── Stableford: with tie splitting ──
     if (r.games?.stableford?.on) {
       const sfPot = r.games.stableford.buyin * players.length;
+      const places = r.games.stableford.places||2;
       const pts = players.map((_,i)=>Scorecard._totalPts?Scorecard._totalPts(i):0);
-      const ranked = pts.map((p,i)=>({i,p})).sort((a,b)=>b.p-a.p);
-      const places = Math.min(r.games.stableford.places||2, ranked.length);
-      const splits = places===1?[1]:places===2?[0.6,0.4]:[0.5,0.3,0.2];
-      splits.forEach((pct,rank)=>{ if(ranked[rank]) winnings[ranked[rank].i]+=Math.round(sfPot*pct); });
+      this._distributeWithTies(winnings, pts, places, sfPot);
     }
+
+    // ── Quota: rank by (scored - quota), with tie splitting ──
+    if (r.games?.quota?.on) {
+      const quotaPot = r.games.quota.buyin * players.length;
+      const places = r.games.quota.places||2;
+      const is9hole = r.holes==='front9'||r.holes==='back9';
+      const diffs = players.map((p,i)=>{
+        const playerQuota = is9hole?(p.quota9||Math.round((p.quota||18)/2)):(p.quota||18);
+        const pts = Scorecard._totalPts?Scorecard._totalPts(i):0;
+        return pts - playerQuota;
+      });
+      this._distributeWithTies(winnings, diffs, places, quotaPot);
+    }
+
+    // ── CTP: one winner per par 3 hole, shortest distance on green ──
+    if (r.games?.ctp?.on && r.ctpResults) {
+      const ctpPot = r.games.ctp.buyin * players.length;
+      const ctpHoles = Object.values(r.ctpResults||{}).filter(h=>h.winnerId);
+      const perHole = ctpHoles.length>0 ? ctpPot/ctpHoles.length : 0;
+      ctpHoles.forEach(h=>{
+        const idx = players.findIndex(p=>p.id===h.winnerId);
+        if(idx>=0) winnings[idx]+=perHole;
+      });
+    }
+
     return winnings;
   },
+
+  // Distribute pot with proper tie splitting across positions
+  _distributeWithTies(winnings, scores, places, pot) {
+    const players = this.round.players||[];
+    // Build payout pool for each place
+    const placeAmounts = this._calcPlaceSplits(pot, places);
+
+    // Sort unique scores descending
+    const ranked = scores.map((s,i)=>({i,s})).sort((a,b)=>b.s-a.s);
+
+    let pos = 0;
+    while (pos < places && pos < ranked.length) {
+      const curScore = ranked[pos].s;
+      // Find all tied at this position
+      const tied = ranked.filter(r=>r.s===curScore);
+      // Sum up all place money for the positions they occupy
+      let totalMoney = 0;
+      for(let t=pos; t<Math.min(pos+tied.length, places); t++) {
+        totalMoney += placeAmounts[t]||0;
+      }
+      const eachGets = totalMoney/tied.length;
+      tied.forEach(t=>{ winnings[t.i]+=eachGets; });
+      pos += tied.length;
+    }
+  },
+
+  _calcPlaceSplits(pot, places) {
+    // Standard splits: 1 place=100%, 2=60/40, 3=50/30/20, 4=40/30/20/10, 5=35/25/20/12/8
+    const splits = {
+      1: [1],
+      2: [0.6,0.4],
+      3: [0.5,0.3,0.2],
+      4: [0.4,0.3,0.2,0.1],
+      5: [0.35,0.25,0.20,0.12,0.08]
+    };
+    const pcts = splits[Math.min(places,5)] || splits[3];
+    return pcts.map(p=>pot*p);
+  },
+
+  _fmt(n) { return Number.isInteger(n) ? '$'+n : '$'+n.toFixed(2); },
 
   _renderCashout(body) {
     const r = this.round;
     const players = r.players||[];
     const winnings = this._calcWinnings();
-    const totalPaid = players.reduce((s,_,i)=>s+(this.paidOut[i]?Math.round(winnings[i]):0),0);
+    const totalPaid = players.reduce((s,_,i)=>s+(this.paidOut[i]?winnings[i]:0),0);
     const pct = r.pot>0 ? Math.round(totalPaid/r.pot*100) : 0;
     const topIdx = winnings.indexOf(Math.max(...winnings));
     const topP = players[topIdx];
 
-    let html = topP ? `<div class="winner-banner">
+    let html = topP && winnings[topIdx]>0 ? `<div class="winner-banner">
       <div class="winner-avatar">${topP.initials}</div>
       <div><div class="winner-name">${topP.name}</div><div class="winner-sub">Round winner</div></div>
-      <div class="winner-amt">$${Math.round(winnings[topIdx])}</div>
+      <div class="winner-amt">${this._fmt(winnings[topIdx])}</div>
     </div>` : '';
 
     html += `<div class="progress-bar-wrap">
       <div class="progress-bar-track"><div class="progress-bar-fill" id="payout-progress" style="width:${pct}%;"></div></div>
-      <div class="progress-bar-labels"><span id="paid-out-label">$${totalPaid} paid out</span><span>$${r.pot} total</span></div>
+      <div class="progress-bar-labels"><span id="paid-out-label">${this._fmt(totalPaid)} paid out</span><span>${this._fmt(r.pot)} total</span></div>
     </div>`;
 
     html += `<div class="section-label">Pay each winner from the pot</div><div class="card">`;
     players.forEach((p,i)=>{
-      const amt=Math.round(winnings[i]);
-      const paid=!!this.paidOut[i];
+      const amt = winnings[i];
+      const paid = !!this.paidOut[i];
       if(amt<=0){
         html+=`<div class="payout-row"><div class="avatar muted">${p.initials}</div><div class="payout-info"><div class="payout-name">${p.name}</div><div class="payout-detail">No winnings</div></div><div class="payout-amt amt-zero">—</div></div>`;
       } else {
-        html+=`<div class="payout-row"><div class="avatar">${p.initials}</div><div class="payout-info"><div class="payout-name">${p.name}</div><div class="payout-detail">$${amt} to collect</div></div><div class="payout-amt amt-win">$${amt}</div><button class="mark-paid-btn${paid?' paid':''}" onclick="Payouts.markPaid(${i},this)">${paid?'Paid ✓':'Mark paid'}</button></div>`;
+        html+=`<div class="payout-row"><div class="avatar">${p.initials}</div><div class="payout-info"><div class="payout-name">${p.name}</div><div class="payout-detail">${this._fmt(amt)} to collect</div></div><div class="payout-amt amt-win">${this._fmt(amt)}</div><button class="mark-paid-btn${paid?' paid':''}" onclick="Payouts.markPaid(${i},this)">${paid?'Paid ✓':'Mark paid'}</button></div>`;
       }
     });
     html+=`</div>`;
+    const remaining = r.pot-totalPaid;
     html+=`<div class="card card-pad" style="margin-top:4px;">
-      <div class="balance-row"><span class="balance-label">Collected</span><span>$${r.pot}</span></div>
-      <div class="balance-row"><span class="balance-label">Paid out</span><span class="b-green">$${totalPaid}</span></div>
-      <div class="balance-row"><span class="balance-label">Remaining</span><span>${r.pot-totalPaid===0?'<span class="b-green">$0 ✓</span>':'$'+(r.pot-totalPaid)}</span></div>
+      <div class="balance-row"><span class="balance-label">Collected</span><span>${this._fmt(r.pot)}</span></div>
+      <div class="balance-row"><span class="balance-label">Paid out</span><span class="b-green">${this._fmt(totalPaid)}</span></div>
+      <div class="balance-row"><span class="balance-label">Remaining</span><span>${Math.abs(remaining)<0.01?'<span class="b-green">$0.00 ✓</span>':this._fmt(remaining)}</span></div>
     </div>`;
     html+=`<button class="primary-btn" onclick="Payouts.closeRound()">Close round &amp; update quotas</button>`;
     html+=`<button class="ghost-btn" onclick="App.nav('scorecard')">Back to scorecard</button>`;
@@ -100,12 +163,12 @@ const Payouts = {
     btn.textContent=this.paidOut[idx]?'Paid ✓':'Mark paid';
     const winnings=this._calcWinnings();
     const r=this.round; const players=r.players||[];
-    const totalPaid=players.reduce((s,_,i)=>s+(this.paidOut[i]?Math.round(winnings[i]):0),0);
+    const totalPaid=players.reduce((s,_,i)=>s+(this.paidOut[i]?winnings[i]:0),0);
     const pct=r.pot>0?Math.round(totalPaid/r.pot*100):0;
     const bar=document.getElementById('payout-progress');
     const lbl=document.getElementById('paid-out-label');
     if(bar)bar.style.width=pct+'%';
-    if(lbl)lbl.textContent='$'+totalPaid+' paid out';
+    if(lbl)lbl.textContent=this._fmt(totalPaid)+' paid out';
   },
 
   _renderBreakdown(body) {
@@ -113,33 +176,104 @@ const Payouts = {
     const tee=players[0]?.tee||'Blue';
     const hd=r.course?.tees?.[tee]||Object.values(r.course?.tees||{})[0];
     let html='';
+
+    // ── Skins breakdown ──
     if(r.games?.skins?.on){
       const skinPot=r.games.skins.buyin*players.length;
       const won=Object.values(r.skinResults||{}).filter(s=>s&&!s.tied);
-      const perSkin=won.length>0?Math.round(skinPot/won.length):0;
-      html+=`<div class="section-label">Skins — $${skinPot} pot</div><div class="card">`;
-      for(let h=0;h<18;h++){
+      const perSkin=won.length>0?skinPot/won.length:0;
+      html+=`<div class="section-label">Skins — ${this._fmt(skinPot)} pot · ${this._fmt(perSkin)}/skin</div><div class="card">`;
+      const holeIndexes = r.holeIndexes||Array.from({length:18},(_,i)=>i);
+      holeIndexes.forEach(h=>{
         const res=(r.skinResults||{})[h]; const par=hd?.par?.[h]||4;
-        if(!res)continue;
+        if(!res)return;
         if(res.tied){html+=`<div class="skin-row"><span class="skin-hole">H${h+1}·P${par}</span><div class="skin-result"><span class="tied-chip">Tied — no skin</span></div></div>`;}
-        else{const w=players[res.winner];html+=`<div class="skin-row"><span class="skin-hole">H${h+1}·P${par}</span><div class="skin-result"><div class="avatar sm">${w?.initials||'?'}</div><span style="font-size:12px;font-weight:500;">${w?.name?.split(' ')[0]||''}</span></div><span class="skin-amt">$${perSkin}</span></div>`;}
-      }
-      html+=`</div>`;
-    }
-    if(r.games?.stableford?.on){
-      const sfPot=r.games.stableford.buyin*players.length;
-      const places=r.games.stableford.places||2;
-      const splits=places===1?[1]:places===2?[0.6,0.4]:[0.5,0.3,0.2];
-      const pts=players.map((_,i)=>Scorecard._totalPts?Scorecard._totalPts(i):0);
-      const ranked=pts.map((p,i)=>({i,p,player:players[i]})).sort((a,b)=>b.p-a.p);
-      const labels=['1st','2nd','3rd'];
-      html+=`<div class="section-label">Stableford — $${sfPot} pot</div><div class="card">`;
-      ranked.forEach((item,rank)=>{
-        const payout=rank<splits.length?Math.round(sfPot*splits[rank]):0;
-        html+=`<div class="payout-row"><div style="font-size:13px;font-weight:600;color:${rank===0?'var(--green)':'var(--text-3)'};min-width:30px;">${labels[rank]||''}</div><div class="avatar">${item.player.initials}</div><div class="payout-info"><div class="payout-name">${item.player.name}</div><div class="payout-detail">${item.p} pts</div></div><div class="payout-amt ${payout>0?'amt-win':'amt-zero'}">${payout>0?'$'+payout:'—'}</div></div>`;
+        else{const w=players[res.winner];html+=`<div class="skin-row"><span class="skin-hole">H${h+1}·P${par}</span><div class="skin-result"><div class="avatar sm">${w?.initials||'?'}</div><span style="font-size:12px;font-weight:500;">${w?.name?.split(' ')[0]||''}</span></div><span class="skin-amt">${this._fmt(perSkin)}</span></div>`;}
       });
       html+=`</div>`;
     }
+
+    // ── Stableford breakdown with ties shown ──
+    if(r.games?.stableford?.on){
+      const sfPot=r.games.stableford.buyin*players.length;
+      const places=r.games.stableford.places||2;
+      const placeAmounts=this._calcPlaceSplits(sfPot,places);
+      const pts=players.map((_,i)=>Scorecard._totalPts?Scorecard._totalPts(i):0);
+      const ranked=pts.map((p,i)=>({i,p,player:players[i]})).sort((a,b)=>b.p-a.p);
+      const labels=['1st','2nd','3rd','4th','5th'];
+      html+=`<div class="section-label">Stableford — ${this._fmt(sfPot)} pot · ${places} places paid</div><div class="card">`;
+      let pos=0;
+      while(pos<ranked.length){
+        const curPts=ranked[pos].p;
+        const tied=ranked.filter(r=>r.p===curPts);
+        let moneyStr='—'; let posLabel=labels[pos]||`${pos+1}th`;
+        if(pos<places){
+          let totalMoney=0;
+          for(let t=pos;t<Math.min(pos+tied.length,places);t++) totalMoney+=placeAmounts[t]||0;
+          const each=totalMoney/tied.length;
+          moneyStr=this._fmt(each);
+          if(tied.length>1) posLabel+=` (${tied.length}-way tie)`;
+        }
+        tied.forEach(item=>{
+          html+=`<div class="payout-row"><div style="font-size:12px;font-weight:600;color:${pos===0?'var(--green)':'var(--text-3)'};min-width:50px;">${posLabel}</div><div class="avatar">${item.player.initials}</div><div class="payout-info"><div class="payout-name">${item.player.name}</div><div class="payout-detail">${item.p} pts</div></div><div class="payout-amt ${pos<places?'amt-win':'amt-zero'}">${moneyStr}</div></div>`;
+        });
+        pos+=tied.length;
+      }
+      html+=`</div>`;
+    }
+
+    // ── Quota breakdown with ties shown ──
+    if(r.games?.quota?.on){
+      const quotaPot=r.games.quota.buyin*players.length;
+      const places=r.games.quota.places||2;
+      const placeAmounts=this._calcPlaceSplits(quotaPot,places);
+      const is9hole=r.holes==='front9'||r.holes==='back9';
+      const diffs=players.map((p,i)=>{
+        const pq=is9hole?(p.quota9||Math.round((p.quota||18)/2)):(p.quota||18);
+        const pts=Scorecard._totalPts?Scorecard._totalPts(i):0;
+        return {diff:pts-pq, pts, pq, player:p, i};
+      }).sort((a,b)=>b.diff-a.diff);
+      const labels=['1st','2nd','3rd','4th','5th'];
+      html+=`<div class="section-label">Quota — ${this._fmt(quotaPot)} pot · ${places} places paid</div><div class="card">`;
+      let pos=0;
+      while(pos<diffs.length){
+        const curDiff=diffs[pos].diff;
+        const tied=diffs.filter(d=>d.diff===curDiff);
+        let moneyStr='—'; let posLabel=labels[pos]||`${pos+1}th`;
+        if(pos<places){
+          let totalMoney=0;
+          for(let t=pos;t<Math.min(pos+tied.length,places);t++) totalMoney+=placeAmounts[t]||0;
+          const each=totalMoney/tied.length;
+          moneyStr=this._fmt(each);
+          if(tied.length>1) posLabel+=` (${tied.length}-way tie)`;
+        }
+        tied.forEach(item=>{
+          const diffStr=item.diff>=0?`+${item.diff}`:item.diff;
+          html+=`<div class="payout-row"><div style="font-size:12px;font-weight:600;color:${pos===0?'var(--green)':'var(--text-3)'};min-width:50px;">${posLabel}</div><div class="avatar">${item.player.initials}</div><div class="payout-info"><div class="payout-name">${item.player.name}</div><div class="payout-detail">${item.pts} pts · quota ${item.pq} · ${diffStr} vs quota</div></div><div class="payout-amt ${pos<places?'amt-win':'amt-zero'}">${moneyStr}</div></div>`;
+        });
+        pos+=tied.length;
+      }
+      html+=`</div>`;
+    }
+
+    // ── CTP breakdown ──
+    if(r.games?.ctp?.on && r.ctpResults){
+      const ctpPot=r.games.ctp.buyin*players.length;
+      const ctpEntries=Object.entries(r.ctpResults||{});
+      const ctpWinners=ctpEntries.filter(([,h])=>h.winnerId);
+      const perHole=ctpWinners.length>0?ctpPot/ctpWinners.length:0;
+      html+=`<div class="section-label">Closest to pin — ${this._fmt(ctpPot)} pot</div><div class="card">`;
+      ctpEntries.forEach(([hole,h])=>{
+        const par=hd?.par?.[parseInt(hole)]||3;
+        if(h.winnerId){
+          const w=players.find(p=>p.id===h.winnerId);
+          html+=`<div class="skin-row"><span class="skin-hole">H${parseInt(hole)+1}·P${par}</span><div class="skin-result"><div class="avatar sm">${w?.initials||'?'}</div><span style="font-size:12px;font-weight:500;">${w?.name?.split(' ')[0]||''} · ${h.distance}</span></div><span class="skin-amt">${this._fmt(perHole)}</span></div>`;
+        }
+      });
+      if(ctpWinners.length===0) html+=`<div style="padding:12px 0;font-size:13px;color:var(--text-3);">No CTP results recorded yet</div>`;
+      html+=`</div>`;
+    }
+
     body.innerHTML=html||`<div class="empty-state"><div class="empty-title">No game data</div></div>`;
   },
 

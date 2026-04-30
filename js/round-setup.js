@@ -20,7 +20,7 @@ const RoundSetup = {
         skins:      { on:true,  buyin:5,  pctPot:50 },
         stableford: { on:true,  buyin:10, pctPot:40, places:2, pts:{eagle:4,birdie:3,par:2,bogey:1,double:0,worse:0} },
         ctp:        { on:false, buyin:5,  pctPot:10, holes:[] },
-        quota:      { on:false, buyin:10, pctPot:0,  pts:{eagle:5,birdie:4,par:3,bogey:2,double:1,worse:0} }
+        quota:      { on:false, buyin:10, pctPot:0,  places:2, pts:{eagle:5,birdie:4,par:3,bogey:2,double:1,worse:0} }
       }
     };
     this.renderStep();
@@ -316,7 +316,8 @@ const RoundSetup = {
 
     const sfExtra = `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:10px;">${['eagle','birdie','par','bogey','double','worse'].map(k=>ptsStepper('stableford',k[0].toUpperCase()+k.slice(1),k)).join('')}</div>
       <div style="display:flex;gap:10px;align-items:center;"><label style="font-size:12px;color:var(--text-2);flex:1;">Top places paid</label><select class="form-input" style="width:auto;" onchange="RoundSetup.setPlaces(this.value)"><option ${g.stableford.places===1?'selected':''} value="1">1st only</option><option ${g.stableford.places===2?'selected':''} value="2">Top 2</option><option ${g.stableford.places===3?'selected':''} value="3">Top 3</option></select></div>`;
-    const quotaExtra = `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;">${['eagle','birdie','par','bogey','double','worse'].map(k=>ptsStepper('quota',k[0].toUpperCase()+k.slice(1),k)).join('')}</div>`;
+    const quotaExtra = `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:10px;">${['eagle','birdie','par','bogey','double','worse'].map(k=>ptsStepper('quota',k[0].toUpperCase()+k.slice(1),k)).join('')}</div>
+      <div style="display:flex;gap:10px;align-items:center;"><label style="font-size:12px;color:var(--text-2);flex:1;">Top places paid</label><select class="form-input" style="width:auto;" onchange="RoundSetup.setQuotaPlaces(this.value)"><option ${g.quota.places===1?'selected':''} value="1">1st only</option><option ${g.quota.places===2?'selected':''} value="2">Top 2</option><option ${g.quota.places===3?'selected':''} value="3">Top 3</option></select></div>`;
 
     let html = `<div class="step-title">Games &amp; payouts</div><div class="step-sub">Toggle games on/off and set point values.</div>`;
     html += gameBlock('skins','Skins','Lowest net score wins · ties = no skin · across all groups');
@@ -335,6 +336,7 @@ const RoundSetup = {
   toggleGame(key,el) { el.classList.toggle('on'); this.config.games[key].on=el.classList.contains('on'); this.renderStep(); },
   setBuyin(key,val)  { this.config.games[key].buyin = parseFloat(val) || 0; },
   setPlaces(v)       { this.config.games.stableford.places=parseInt(v); },
+  setQuotaPlaces(v)  { this.config.games.quota.places=parseInt(v); },
   adjPts(gk,sk,d)    { this.config.games[gk].pts[sk]=Math.max(0,(this.config.games[gk].pts[sk]||0)+d); this.renderStep(); },
 
   // Read all buyin inputs from DOM before leaving step 3

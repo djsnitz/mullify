@@ -212,6 +212,33 @@ const Scorecard = {
       </div>`;
     });
 
+    // CTP entry on par 3 holes
+    if (r.games?.ctp?.on && par === 3) {
+      const existing = r.ctpResults?.[h] || {};
+      html += `<div class="card card-pad" style="margin-top:10px;border-color:var(--blue);">
+        <div style="font-size:13px;font-weight:600;color:var(--blue);margin-bottom:10px;">⛳ Closest to the pin — H${h+1} Par 3</div>
+        ${(r.players||[]).map((p,i) => {
+          const entry = existing[p.id] || {};
+          return `<div class="player-row">
+            <div class="avatar sm">${p.initials}</div>
+            <div class="player-info" style="flex:1;">
+              <div class="player-name" style="font-size:13px;">${p.name}</div>
+              <div style="display:flex;gap:6px;align-items:center;margin-top:4px;">
+                <input type="number" placeholder="Feet" min="0" value="${entry.feet||''}" id="ctp-feet-${i}" style="width:60px;padding:5px 8px;border-radius:6px;border:0.5px solid var(--border-2);font-size:13px;" />
+                <span style="font-size:13px;">ft</span>
+                <input type="number" placeholder="In" min="0" max="11" value="${entry.inches||''}" id="ctp-inches-${i}" style="width:50px;padding:5px 8px;border-radius:6px;border:0.5px solid var(--border-2);font-size:13px;" />
+                <span style="font-size:13px;">in</span>
+                <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--red);">
+                  <input type="checkbox" id="ctp-og-${i}" ${entry.og?'checked':''} /> OG
+                </label>
+              </div>
+            </div>
+          </div>`;
+        }).join('')}
+        <button class="primary-btn" style="margin-top:10px;" onclick="Scorecard.saveCTP(${h})">Save CTP results</button>
+      </div>`;
+    }
+
     // Skin preview
     if (r.games?.skins?.on) {
       const netScores = players.map((p,i) => {
@@ -435,6 +462,43 @@ const Scorecard = {
     }
 
     body.innerHTML = html;
+  },
+
+  async saveCTP(hole) {
+    const r = this.round;
+    const players = r.players||[];
+    const results = {};
+    let winnerId = null;
+    let winnerTotalInches = Infinity;
+
+    players.forEach((p, i) => {
+      const feet   = parseInt(document.getElementById(`ctp-feet-${i}`)?.value)||0;
+      const inches = parseInt(document.getElementById(`ctp-inches-${i}`)?.value)||0;
+      const og     = document.getElementById(`ctp-og-${i}`)?.checked||false;
+      if (feet===0 && inches===0) return; // not entered
+      const totalInches = feet*12 + inches;
+      results[p.id] = { feet, inches, og, distance:`${feet}'${inches}"`, totalInches };
+      if (!og && totalInches < winnerTotalInches) {
+        winnerTotalInches = totalInches;
+        winnerId = p.id;
+      }
+    });
+
+    // Add winner to each result
+    const finalResult = { ...results };
+    if (winnerId) {
+      Object.values(finalResult).forEach(r => { r.isWinner = r === finalResult[winnerId]; });
+      finalResult.winnerId = winnerId;
+      finalResult.winnerDistance = results[winnerId]?.distance;
+    }
+
+    await DB.saveCTPResult(this.roundCode, hole, finalResult);
+    // Update local
+    if (!r.ctpResults) r.ctpResults = {};
+    r.ctpResults[hole] = finalResult;
+
+    const winnerName = players.find(p=>p.id===winnerId)?.name;
+    alert(`CTP H${hole+1} saved!${winnerId?' Winner: '+winnerName+' ('+finalResult[winnerId]?.distance+')':' No on-green shots recorded.'}`);
   },
 
   async confirmEndRound() {
