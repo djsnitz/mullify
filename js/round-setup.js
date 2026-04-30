@@ -3,7 +3,7 @@ const RoundSetup = {
   step: 1,
   config: {},
 
-  start() {
+  async start() {
     this.step = 1;
     this.config = {
       roundName: '',
@@ -17,14 +17,24 @@ const RoundSetup = {
       netScoring: true,
       entryMode: 'both',
       games: {
-        skins:      { on:true,  buyin:5,  pctPot:50 },
-        stableford: { on:true,  buyin:10, pctPot:40, places:2, pts:{eagle:4,birdie:3,par:2,bogey:1,double:0,worse:0} },
-        ctp:        { on:false, buyin:5,  pctPot:10, holes:[] },
-        quota:      { on:false, buyin:10, pctPot:0,  places:2, pts:{eagle:5,birdie:4,par:3,bogey:2,double:1,worse:0} },
-        lowgross:   { on:false, buyin:10, places:2 },
+        skins:      { on:true,  buyin:5  },
+        stableford: { on:true,  buyin:10, places:2, pts:{eagle:4,birdie:3,par:2,bogey:1,double:0,worse:0} },
+        ctp:        { on:false, buyin:5,  holes:[] },
+        quota:      { on:false, buyin:10, places:2, pts:{eagle:5,birdie:4,par:3,bogey:2,double:1,worse:0} },
+        lowgross:   { on:false, buyin:10 },
         netscore:   { on:false, buyin:10, places:2 }
       }
     };
+    // Preload players from Firebase BEFORE showing step 1
+    if (!Players.list.length) {
+      try { await Players.load(); } catch(e) { console.error('Player load:', e); }
+    }
+    // Pre-initialize player assignments so step 2 has data immediately
+    if (Players.list.length) {
+      this.config.players = Players.list.map(p=>({
+        player: p, tee: p.tee||'Blue', playing: false, group: 1, startHole: 1
+      }));
+    }
     this.renderStep();
   },
 
@@ -34,11 +44,10 @@ const RoundSetup = {
       `<div class="step-dot ${i<this.step?'done':i===this.step?'active':''}"></div>`
     ).join('');
     const body = document.getElementById('setup-body');
-    body.innerHTML = `<div class="empty-state"><div class="empty-title">Loading…</div></div>`;
-    if      (this.step===1) { this._step1(body); }
-    else if (this.step===2) { this._step2(body).then(()=>{}); }
-    else if (this.step===3) { this._step3(body); }
-    else                    { this._step4(body); }
+    if      (this.step===1) this._step1(body);
+    else if (this.step===2) this._step2(body);
+    else if (this.step===3) this._step3(body);
+    else                    this._step4(body);
   },
 
   // ── Step 1: Course + holes + shotgun ──
@@ -133,22 +142,18 @@ const RoundSetup = {
   toggleShotgun(el) { el.classList.toggle('on'); this.config.shotgun = el.classList.contains('on'); this.renderStep(); },
 
   // ── Step 2: Players & groups ──
-  async _step2(body) {
-    // Ensure players are loaded
-    if (!Players.list.length) {
-      try { await Players.load(); } catch(e) {}
-    }
+  _step2(body) {
     const allPlayers = Players.list;
     const teeKeys = this.config.course ? Object.keys(this.config.course.tees) : ['Black','Gold','Blue','White','Red'];
 
-    // Init groups if needed
-    if (!this.config.groups.length) {
-      const numGroups = parseInt(this.config.numGroups)||1;
-      this.config.groups = Array.from({length:numGroups},(_,i)=>({name:`Group ${i+1}`, startHole:this.config.startHole}));
-    }
-    // Init player assignments — default all to not playing
+    // Ensure players initialized (safety check)
     if (!this.config.players.length && allPlayers.length) {
       this.config.players = allPlayers.map(p=>({player:p, tee:p.tee||'Blue', playing:false, group:1, startHole:this.config.startHole}));
+    }
+
+    // Init groups if needed
+    if (!this.config.groups.length) {
+      this.config.groups = [{name:'Group 1', startHole:this.config.startHole}];
     }
 
     const activePlayers = this.config.players.filter(p=>p.playing);
@@ -291,7 +296,8 @@ const RoundSetup = {
   _step3(body) {
     const g = this.config.games;
     const activePlayers = this.config.players.filter(p=>p.playing).length;
-    const totalBuyin = ['skins','stableford','ctp','quota'].reduce((s,k)=>s+(g[k].on?g[k].buyin:0),0);
+    const allGameKeys = ['skins','stableford','ctp','quota','lowgross','netscore'];
+    const totalBuyin = allGameKeys.reduce((s,k)=>s+(g[k]?.on?g[k].buyin:0),0);
     const totalPot = totalBuyin * activePlayers;
 
     const ptsStepper = (gameKey, label, scoreKey) => {
@@ -331,8 +337,8 @@ const RoundSetup = {
     html += gameBlock('stableford','Stableford','Points vs net par · top scores paid',sfExtra);
     html += gameBlock('ctp','Closest to the pin','Par 3 holes · closest tee shot wins');
     html += gameBlock('quota','Quota','Beat your points target to win',quotaExtra);
-    html += gameBlock('lowgross','Low gross','Lowest gross score wins',`<div style="display:flex;gap:10px;align-items:center;"><label style="font-size:12px;color:var(--text-2);flex:1;">Top places paid</label><select class="form-input" style="width:auto;" onchange="RoundSetup.config.games.lowgross.places=parseInt(this.value)"><option ${g.lowgross?.places===1?'selected':''} value="1">1st only</option><option ${g.lowgross?.places===2?'selected':''} value="2">Top 2</option><option ${g.lowgross?.places===3?'selected':''} value="3">Top 3</option></select></div>`);
-    html += gameBlock('netscore','Net score','Lowest net score wins (vs handicap)',`<div style="display:flex;gap:10px;align-items:center;"><label style="font-size:12px;color:var(--text-2);flex:1;">Top places paid</label><select class="form-input" style="width:auto;" onchange="RoundSetup.config.games.netscore.places=parseInt(this.value)"><option ${g.netscore?.places===1?'selected':''} value="1">1st only</option><option ${g.netscore?.places===2?'selected':''} value="2">Top 2</option><option ${g.netscore?.places===3?'selected':''} value="3">Top 3</option></select></div>`);
+    html += gameBlock('lowgross','Low gross','Lowest gross score wins · winner takes all');
+    html += gameBlock('netscore','Net score','Lowest net score wins (after handicap)',`<div style="display:flex;gap:10px;align-items:center;"><label style="font-size:12px;color:var(--text-2);flex:1;">Top places paid</label><select class="form-input" style="width:auto;" onchange="RoundSetup.config.games.netscore.places=parseInt(this.value)"><option ${g.netscore?.places===1?'selected':''} value="1">1st only</option><option ${g.netscore?.places===2?'selected':''} value="2">Top 2</option><option ${g.netscore?.places===3?'selected':''} value="3">Top 3</option></select></div>`);
     html += `<div class="card card-pad" style="background:var(--green-light);border-color:var(--green-mid);">
       <div class="flex-between"><div style="font-size:13px;color:var(--green-dark);">Total pot</div><div style="font-size:22px;font-weight:700;color:var(--green-dark);">$${totalPot}</div></div>
       <div style="font-size:12px;color:var(--green);">${activePlayers} players · $${totalBuyin} each</div>
@@ -350,7 +356,7 @@ const RoundSetup = {
 
   // Read all buyin inputs from DOM before leaving step 3
   _flushBuyins() {
-    ['skins','stableford','ctp','quota'].forEach(key => {
+    ['skins','stableford','ctp','quota','lowgross','netscore'].forEach(key => {
       const el = document.getElementById(`buyin-${key}`);
       if (el) this.config.games[key].buyin = parseFloat(el.value) || 0;
     });
@@ -360,7 +366,7 @@ const RoundSetup = {
   _step4(body) {
     const c = this.config;
     const active = c.players.filter(p=>p.playing);
-    const buyin  = ['skins','stableford','ctp','quota'].reduce((s,k)=>s+(c.games[k].on?c.games[k].buyin:0),0);
+    const buyin  = ['skins','stableford','ctp','quota','lowgross','netscore'].reduce((s,k)=>s+(c.games[k]?.on?c.games[k].buyin:0),0);
     const pot    = buyin * active.length;
     const activeGames = Object.keys(c.games).filter(k=>c.games[k].on).map(k=>k[0].toUpperCase()+k.slice(1));
     const holesLabel = c.holes==='18'?'18 holes':c.holes==='front9'?'Front 9':'Back 9';
@@ -424,7 +430,7 @@ const RoundSetup = {
     if (btn) { btn.disabled=true; btn.textContent=status==='active'?'Creating round…':'Saving…'; }
     const c = this.config;
     const activePlayers = c.players.filter(p=>p.playing);
-    const buyin = ['skins','stableford','ctp','quota'].reduce((s,k)=>s+(c.games[k].on?c.games[k].buyin:0),0);
+    const buyin = ['skins','stableford','ctp','quota','lowgross','netscore'].reduce((s,k)=>s+(c.games[k]?.on?c.games[k].buyin:0),0);
 
     // Build per-player hole indexes
     const playersWithHoles = activePlayers.map(pp => {
