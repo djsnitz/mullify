@@ -128,13 +128,14 @@ const Scorecard = {
     const pts = r.games?.stableford?.pts || {eagle:4,birdie:3,par:2,bogey:1,double:0,worse:0};
     const tee = p.tee || 'Blue';
     const hd = r.course.tees[tee] || Object.values(r.course.tees)[0];
+    const holeIndexes = r.holeIndexes || Array.from({length:18},(_,i)=>i);
     let total = 0;
-    for (let h = 0; h < 18; h++) {
-      const gross = (r.scores?.[p.id]?.[h]);
-      if (gross === undefined || gross === null) continue;
+    holeIndexes.forEach(h => {
+      const gross = r.scores?.[p.id]?.[h];
+      if (gross === undefined || gross === null) return;
       const net = this._net(gross, p.hcp, hd.hcp[h]);
       total += this._sfPts(net, hd.par[h], pts);
-    }
+    });
     return total;
   },
 
@@ -168,7 +169,8 @@ const Scorecard = {
     let lastGroup = null;
 
     sortedPlayers.forEach((p) => {
-      const i = players.indexOf(p);
+      const i = players.findIndex(pl => pl.id === p.id); // use id not reference
+      if (i === -1) return; // skip if not found
       // Group divider
       if (p.group && p.group !== lastGroup) {
         const isMyGroup = p.group === myGroup;
@@ -212,8 +214,14 @@ const Scorecard = {
       </div>`;
     });
 
+    // Get par for current hole (use first player's tee as reference)
+    const firstP = players[0];
+    const firstTee2 = firstP?.tee || 'Blue';
+    const firstHd = r.course?.tees?.[firstTee2] || Object.values(r.course?.tees||{})[0];
+    const currentPar = firstHd?.par?.[h] || 4;
+
     // CTP entry on par 3 holes
-    if (r.games?.ctp?.on && par === 3) {
+    if (r.games?.ctp?.on && currentPar === 3) {
       const existing = r.ctpResults?.[h] || {};
       html += `<div class="card card-pad" style="margin-top:10px;border-color:var(--blue);">
         <div style="font-size:13px;font-weight:600;color:var(--blue);margin-bottom:10px;">⛳ Closest to the pin — H${h+1} Par 3</div>
