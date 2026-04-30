@@ -184,6 +184,7 @@ const Scorecard = {
       const net = this._net(gross, p.hcp, hcpIdx);
       const sl  = this._scoreLabel(net, par);
       const totalPts = this._totalPts(i);
+      const grossTotal = Object.values(r.scores?.[p.id]||{}).reduce((a,b)=>a+(b||0),0);
       const canEdit  = this._canEdit(i);
       const isMe = p.id === this.myPlayerId;
 
@@ -194,7 +195,10 @@ const Scorecard = {
             <div class="sec-name">${p.name}${isMe?' <span style="font-size:10px;color:var(--green);">(you)</span>':''}${p.group?' <span style="font-size:10px;background:var(--bg-2);color:var(--text-2);padding:1px 6px;border-radius:10px;">Grp '+p.group+'</span>':''}</div>
             <div class="sec-meta">${tee} tee · HCP ${p.hcp} · ${strokes} stroke${strokes!==1?'s':''} H${h+1}${p.startHole&&p.startHole>1?' · Start H'+p.startHole:''}</div>
           </div>
-          <div class="sec-pts">${r.games?.stableford?.on ? totalPts+' pts' : ''}</div>
+          <div class="sec-pts" style="text-align:right;">
+            ${r.games?.stableford?.on ? `<div style="font-size:13px;font-weight:600;color:var(--green);">${totalPts} pts</div>` : ''}
+            <div style="font-size:11px;color:var(--text-2);">${grossTotal>0?'Total: '+grossTotal:''}</div>
+          </div>
         </div>
         <div class="sec-ctrl">
           ${canEdit ? `<button class="sc-minus" onclick="Scorecard.adj('${p.id}',${i},-1)">−</button>` : `<div style="width:38px;"></div>`}
@@ -270,7 +274,21 @@ const Scorecard = {
     const currentIdx = holeIndexes.indexOf(h);
     const isLastHole = currentIdx === holeIndexes.length - 1;
 
-    // Determine skin result
+    // Issue 1 fix: Save par for any player whose score wasn't manually adjusted
+    for (const p of players) {
+      const tee = p.tee||'Blue';
+      const hd = r.course.tees[tee]||Object.values(r.course.tees)[0];
+      const existingScore = r.scores?.[p.id]?.[h];
+      if (existingScore === undefined || existingScore === null) {
+        const parScore = hd.par[h] || 4;
+        await DB.saveScore(this.roundCode, p.id, h, parScore);
+        if (!r.scores) r.scores = {};
+        if (!r.scores[p.id]) r.scores[p.id] = {};
+        r.scores[p.id][h] = parScore;
+      }
+    }
+
+    // Determine skin result using saved scores
     const netScores = players.map((p) => {
       const tee=p.tee||'Blue'; const hd=r.course.tees[tee]||Object.values(r.course.tees)[0];
       const gross=r.scores?.[p.id]?.[h]??hd.par[h];
@@ -323,26 +341,62 @@ const Scorecard = {
     const tee = r.players?.[0]?.tee || 'Blue';
     const hd  = r.course.tees[tee] || Object.values(r.course.tees)[0];
     const skinPot = (r.games?.skins?.buyin||0) * (r.players?.length||0);
-    const skinsWon = Object.values(r.skinResults||{}).filter(s=>s&&!s.tied).length;
+    const skinResults = r.skinResults || {};
+    const skinsWon = Object.values(skinResults).filter(s=>s&&!s.tied).length;
     const perSkin  = skinsWon > 0 ? Math.round(skinPot/skinsWon) : 0;
 
-    let html = `<div class="stat-grid" style="margin-bottom:14px;">
+    // Build per-player skin summary
+    const playerSkins = {};
+    Object.entries(skinResults).forEach(([h, res]) => {
+      if (res && !res.tied && res.winnerId) {
+        if (!playerSkins[res.winnerId]) playerSkins[res.winnerId] = [];
+        playerSkins[res.winnerId].push(parseInt(h));
+      }
+    });
+
+    let html = `<div class="stat-grid" style="margin-bottom:12px;">
       <div class="stat-card"><div class="stat-label">Skins won</div><div class="stat-value">${skinsWon}</div><div class="stat-sub">$${perSkin} each</div></div>
       <div class="stat-card"><div class="stat-label">Pot</div><div class="stat-value">$${skinPot}</div><div class="stat-sub">${r.players?.length||0} players</div></div>
-    </div><div class="card">`;
+    </div>`;
 
-    const curH = r.currentHole||0;
-    for (let h=0; h<=curH; h++) {
-      const res = (r.skinResults||{})[h];
-      const par = hd?.par?.[h]||4;
-      if (!res) { html+=`<div class="skin-row"><span class="skin-hole">H${h+1}·P${par}</span><div class="skin-result" style="color:var(--text-3);">—</div></div>`; continue; }
-      if (res.tied) {
-        html+=`<div class="skin-row"><span class="skin-hole">H${h+1}·P${par}</span><div class="skin-result"><span class="tied-chip">Tied — no skin</span></div></div>`;
+    // Player skin summary — who has what
+    html += `<div class="section-label">Player skins summary</div><div class="card" style="margin-bottom:12px;">`;
+    (r.players||[]).forEach(p => {
+      const holes = playerSkins[p.id] || [];
+      const total = holes.length * perSkin;
+      html += `<div class="player-row">
+        <div class="avatar${holes.length?'':' muted'}">${p.initials}</div>
+        <div class="player-info">
+          <div class="player-name">${p.name}</div>
+          <div class="player-meta">${holes.length>0
+            ? `Holes: ${holes.map(h=>'H'+(h+1)).join(', ')}`
+            : 'No skins yet'}</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:15px;font-weight:700;color:${holes.length?'var(--green)':'var(--text-3)'};">${holes.length>0?'+$'+total:'—'}</div>
+          <div style="font-size:11px;color:var(--text-2);">${holes.length} skin${holes.length!==1?'s':''}</div>
+        </div>
+      </div>`;
+    });
+    html += `</div>`;
+
+    // Hole-by-hole detail
+    html += `<div class="section-label">Hole-by-hole</div><div class="card">`;
+    const holeIndexes = r.holeIndexes || Array.from({length:18},(_,i)=>i);
+    const curH = r.currentHole || 0;
+    holeIndexes.forEach(h => {
+      if (h > curH) return;
+      const res = skinResults[h];
+      const par = hd?.par?.[h] || 4;
+      if (!res) {
+        html += `<div class="skin-row"><span class="skin-hole">H${h+1}·P${par}</span><div class="skin-result" style="color:var(--text-3);">—</div></div>`;
+      } else if (res.tied) {
+        html += `<div class="skin-row"><span class="skin-hole">H${h+1}·P${par}</span><div class="skin-result"><span class="tied-chip">Tied — no skin</span></div></div>`;
       } else {
         const w = r.players?.[res.winner];
-        html+=`<div class="skin-row"><span class="skin-hole">H${h+1}·P${par}</span><div class="skin-result"><div class="avatar sm">${w?.initials||'?'}</div><span style="font-size:12px;font-weight:500;">${w?.name?.split(' ')[0]||''}</span></div><span class="skin-amt">$${perSkin}</span></div>`;
+        html += `<div class="skin-row"><span class="skin-hole">H${h+1}·P${par}</span><div class="skin-result"><div class="avatar sm">${w?.initials||'?'}</div><span style="font-size:12px;font-weight:500;">${w?.name?.split(' ')[0]||''}</span></div><span class="skin-amt">+$${perSkin}</span></div>`;
       }
-    }
+    });
     html += `</div>`;
     body.innerHTML = html;
   },
@@ -409,30 +463,44 @@ const Scorecard = {
   _renderQuota(body) {
     const r = this.round;
     const is9hole = r.holes === 'front9' || r.holes === 'back9';
-    let html = `<div class="card">`;
-    (r.players||[]).forEach((p,i) => {
+    const totalHoles = (r.holeIndexes||[]).length || 18;
+
+    // Summary stats
+    const playerData = (r.players||[]).map((p,i) => {
       const playerQuota = is9hole ? (p.quota9||Math.round((p.quota||18)/2)) : (p.quota||18);
-      const scored = Object.keys(r.scores?.[p.id]||{}).length;
-      const currentPts = this._totalPts(i);
-      const totalHoles = (r.holeIndexes||[]).length||18;
-      const pct = Math.min(100,Math.round(currentPts/playerQuota*100));
-      const paceTarget = Math.round(playerQuota/totalHoles*scored);
-      const diff = currentPts - paceTarget;
+      const currentPts  = this._totalPts(i);
+      const scored      = Object.keys(r.scores?.[p.id]||{}).length;
+      const diff        = currentPts - playerQuota;
+      return {p, i, playerQuota, currentPts, scored, diff};
+    }).sort((a,b) => b.diff - a.diff); // Best vs quota first
+
+    let html = `<div class="section-label">Quota standings</div><div class="card">`;
+    playerData.forEach(({p, i, playerQuota, currentPts, scored, diff}) => {
+      const pct = Math.min(100, Math.round(currentPts/playerQuota*100));
       const fillColor = pct>=100?'var(--green)':pct>=70?'var(--amber)':'var(--red)';
-      html+=`<div class="quota-row">
+      const diffStr = diff >= 0 ? `+${diff}` : `${diff}`;
+      const diffCol = diff >= 0 ? 'var(--green)' : 'var(--red)';
+      const mySkinsHoles = Object.entries(r.skinResults||{})
+        .filter(([,s])=>s&&!s.tied&&s.winnerId===p.id)
+        .map(([h])=>'H'+(parseInt(h)+1)).join(', ');
+
+      html += `<div class="quota-row" style="flex-wrap:wrap;">
         <div class="avatar">${p.initials}</div>
-        <div class="quota-info">
+        <div class="quota-info" style="flex:1;">
           <div class="quota-name">${p.name}</div>
-          <div class="quota-sub">${currentPts} pts · ${is9hole?'9H ':''}quota ${playerQuota} · thru ${scored}</div>
-          <div class="mini-bar"><div class="mini-fill" style="width:${pct}%;background:${fillColor};"></div></div>
-        </div>
-        <div class="quota-right">
-          <div class="quota-target">${currentPts}/${playerQuota}</div>
-          <div class="quota-adj ${diff>=0?'adj-up':'adj-down'}">${diff>=0?'+':''}${diff} vs pace</div>
+          <div style="display:flex;justify-content:space-between;margin-top:3px;">
+            <span style="font-size:12px;color:var(--text-2);">Quota ${playerQuota} · ${scored} holes played</span>
+            <span style="font-size:13px;font-weight:700;color:${diffCol};">${diffStr} pts</span>
+          </div>
+          <div class="mini-bar" style="margin-top:5px;"><div class="mini-fill" style="width:${pct}%;background:${fillColor};"></div></div>
+          <div style="display:flex;justify-content:space-between;margin-top:3px;">
+            <span style="font-size:11px;color:var(--text-2);">Scored ${currentPts} / need ${playerQuota}</span>
+            <span style="font-size:11px;color:${diff>=0?'var(--green)':'var(--red)'};">${diff>=0?'Beating quota ✓':'Behind quota'}</span>
+          </div>
         </div>
       </div>`;
     });
     html += `</div>`;
     body.innerHTML = html;
-  }
+  },
 };
