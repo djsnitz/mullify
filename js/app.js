@@ -14,9 +14,10 @@ const Payouts = {
   renderView() {
     const body = document.getElementById('payouts-body');
     if (!this.round) { body.innerHTML=`<div class="empty-state"><div class="empty-title">No round data</div><div class="empty-sub">Complete a round to see payouts.</div></div>`; return; }
-    if (this.view==='cashout')   this._renderCashout(body);
+    if (this.view==='cashout')        this._renderCashout(body);
     else if (this.view==='breakdown') this._renderBreakdown(body);
-    else                         this._renderLedger(body);
+    else if (this.view==='scorecard') this._renderScorecard(body);
+    else                              this._renderLedger(body);
   },
 
   showView(v,tab) {
@@ -48,9 +49,29 @@ const Payouts = {
       this._distributeWithTies(winnings, pts, places, sfPot);
     }
 
-    // ── Quota: rank by (scored - quota), with tie splitting ──
+    // ── CTP: one winner per par 3 hole — unclaimed holes carry to quota ──
+    let ctpCarryover = 0;
+    if (r.games?.ctp?.on) {
+      const ctpPot = r.games.ctp.buyin * players.length;
+      const tee = players[0]?.tee||'Blue';
+      const hd = r.course?.tees?.[tee]||Object.values(r.course?.tees||{})[0];
+      const holeIndexes = r.holeIndexes||Array.from({length:18},(_,i)=>i);
+      const par3Holes = holeIndexes.filter(h=>(hd?.par?.[h]||4)===3);
+      const perHole = par3Holes.length > 0 ? ctpPot / par3Holes.length : 0;
+      par3Holes.forEach(h=>{
+        const res = (r.ctpResults||{})[h];
+        if (res?.winnerId) {
+          const idx = players.findIndex(p=>p.id===res.winnerId);
+          if(idx>=0) winnings[idx]+=perHole;
+        } else {
+          ctpCarryover += perHole; // no on-green shot — carries to quota
+        }
+      });
+    }
+
+    // ── Quota: rank by (scored - quota), with tie splitting + CTP carryover ──
     if (r.games?.quota?.on) {
-      const quotaPot = r.games.quota.buyin * players.length;
+      const quotaPot = (r.games.quota.buyin * players.length) + ctpCarryover;
       const places = r.games.quota.places||2;
       const is9hole = r.holes==='front9'||r.holes==='back9';
       const diffs = players.map((p,i)=>{
@@ -59,17 +80,6 @@ const Payouts = {
         return pts - playerQuota;
       });
       this._distributeWithTies(winnings, diffs, places, quotaPot);
-    }
-
-    // ── CTP: one winner per par 3 hole, shortest distance on green ──
-    if (r.games?.ctp?.on && r.ctpResults) {
-      const ctpPot = r.games.ctp.buyin * players.length;
-      const ctpHoles = Object.values(r.ctpResults||{}).filter(h=>h.winnerId);
-      const perHole = ctpHoles.length>0 ? ctpPot/ctpHoles.length : 0;
-      ctpHoles.forEach(h=>{
-        const idx = players.findIndex(p=>p.id===h.winnerId);
-        if(idx>=0) winnings[idx]+=perHole;
-      });
     }
 
     // ── Low Gross: lowest total gross score wins (winner takes all, ties split) ──
@@ -195,6 +205,118 @@ const Payouts = {
     const lbl=document.getElementById('paid-out-label');
     if(bar)bar.style.width=pct+'%';
     if(lbl)lbl.textContent=this._fmt(totalPaid)+' paid out';
+  },
+
+  _renderScorecard(body) {
+    const r = this.round;
+    const players = r.players||[];
+    const holeIndexes = r.holeIndexes||Array.from({length:18},(_,i)=>i);
+    const tee = players[0]?.tee||'Blue';
+    const hd = r.course?.tees?.[tee]||Object.values(r.course?.tees||{})[0];
+
+    const front = holeIndexes.slice(0, Math.min(9, holeIndexes.length));
+    const back  = holeIndexes.length > 9 ? holeIndexes.slice(9) : [];
+
+    const frontPar = front.reduce((a,h)=>a+(hd?.par?.[h]||4),0);
+    const backPar  = back.reduce((a,h)=>a+(hd?.par?.[h]||4),0);
+    const totalPar = frontPar + backPar;
+
+    const buildSection = (holes, label, parTotal) => {
+      let html = `<div style="overflow-x:auto;margin-bottom:16px;">
+        <table style="width:100%;border-collapse:collapse;font-size:11px;white-space:nowrap;">
+          <thead>
+            <tr style="background:var(--bg-2);">
+              <th style="padding:6px 8px;text-align:left;border-bottom:0.5px solid var(--border);font-weight:600;min-width:80px;">Player</th>
+              ${holes.map(h=>`<th style="padding:6px 5px;text-align:center;border-bottom:0.5px solid var(--border);font-weight:600;">H${h+1}</th>`).join('')}
+              <th style="padding:6px 8px;text-align:center;border-bottom:0.5px solid var(--border);font-weight:600;">${label}</th>
+            </tr>
+            <tr style="background:var(--bg-2);">
+              <th style="padding:4px 8px;text-align:left;border-bottom:0.5px solid var(--border);color:var(--text-2);font-weight:400;">Par</th>
+              ${holes.map(h=>{
+                const p=hd?.par?.[h]||4;
+                return `<th style="padding:4px 5px;text-align:center;border-bottom:0.5px solid var(--border);color:${p===3?'var(--blue)':p===5?'var(--green)':'var(--text-2)'};font-weight:400;">${p}</th>`;
+              }).join('')}
+              <th style="padding:4px 8px;text-align:center;border-bottom:0.5px solid var(--border);color:var(--text-2);font-weight:400;">${parTotal}</th>
+            </tr>
+          </thead>
+          <tbody>`;
+
+      players.forEach((p,pi) => {
+        const rowTotal = holes.reduce((a,h)=>a+(r.scores?.[p.id]?.[h]||0),0);
+        const rowPar   = holes.reduce((a,h)=>a+(hd?.par?.[h]||4),0);
+        const vsPar    = rowTotal > 0 ? rowTotal - rowPar : null;
+        const bg = pi%2===0?'var(--surface)':'var(--bg-2)';
+        html += `<tr style="background:${bg};">
+          <td style="padding:6px 8px;border-bottom:0.5px solid var(--border);font-weight:500;">${p.name.split(' ')[0]} ${p.name.split(' ')[1]?.[0]||''}.</td>
+          ${holes.map(h=>{
+            const score = r.scores?.[p.id]?.[h];
+            const par   = hd?.par?.[h]||4;
+            const diff  = score ? score-par : null;
+            let style = 'padding:6px 5px;text-align:center;border-bottom:0.5px solid var(--border);';
+            if (diff !== null) {
+              if (diff <= -2) style += 'color:#7c3aed;font-weight:700;'; // eagle
+              else if (diff === -1) style += 'color:var(--green);font-weight:600;'; // birdie
+              else if (diff === 1)  style += 'color:var(--amber);'; // bogey
+              else if (diff >= 2)   style += 'color:var(--red);'; // double+
+            }
+            return `<td style="${style}">${score||'—'}</td>`;
+          }).join('')}
+          <td style="padding:6px 8px;text-align:center;border-bottom:0.5px solid var(--border);font-weight:700;">
+            ${rowTotal>0?rowTotal:'—'}
+            ${vsPar!==null?`<span style="font-size:10px;color:${vsPar<0?'var(--green)':vsPar>0?'var(--red)':'var(--text-2)'};">${vsPar===0?'E':vsPar>0?'+'+vsPar:vsPar}</span>`:''}
+          </td>
+        </tr>`;
+      });
+
+      html += `</tbody></table></div>`;
+      return html;
+    };
+
+    let html = `<div style="font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:8px;">${r.roundName||'Round'} · ${r.course?.name||''} · ${r.date||''}</div>`;
+
+    if (front.length) html += buildSection(front, front.length<9?'Total':'Out', frontPar);
+    if (back.length)  html += buildSection(back, 'In', backPar);
+
+    // Final totals row
+    if (back.length) {
+      html += `<div class="card" style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <tr style="background:var(--bg-2);">
+            <th style="padding:8px;text-align:left;min-width:80px;">Player</th>
+            <th style="padding:8px;text-align:center;">Out</th>
+            <th style="padding:8px;text-align:center;">In</th>
+            <th style="padding:8px;text-align:center;">Total</th>
+            <th style="padding:8px;text-align:center;">+/−</th>
+          </tr>`;
+      players.forEach((p,pi) => {
+        const outScore = front.reduce((a,h)=>a+(r.scores?.[p.id]?.[h]||0),0);
+        const inScore  = back.reduce((a,h)=>a+(r.scores?.[p.id]?.[h]||0),0);
+        const total    = outScore + inScore;
+        const vsPar    = total > 0 ? total - totalPar : null;
+        const bg = pi%2===0?'var(--surface)':'var(--bg-2)';
+        html += `<tr style="background:${bg};">
+          <td style="padding:8px;font-weight:500;">${p.name.split(' ')[0]} ${p.name.split(' ')[1]?.[0]||''}.</td>
+          <td style="padding:8px;text-align:center;">${outScore||'—'}</td>
+          <td style="padding:8px;text-align:center;">${inScore||'—'}</td>
+          <td style="padding:8px;text-align:center;font-weight:700;">${total||'—'}</td>
+          <td style="padding:8px;text-align:center;font-weight:600;color:${vsPar!==null&&vsPar<0?'var(--green)':vsPar!==null&&vsPar>0?'var(--red)':'var(--text-2)'};">
+            ${vsPar===null?'—':vsPar===0?'E':vsPar>0?'+'+vsPar:vsPar}
+          </td>
+        </tr>`;
+      });
+      html += `</table></div>`;
+    }
+
+    // Score color legend
+    html += `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;font-size:11px;">
+      <span style="color:#7c3aed;">● Eagle or better</span>
+      <span style="color:var(--green);">● Birdie</span>
+      <span style="color:var(--text-2);">● Par</span>
+      <span style="color:var(--amber);">● Bogey</span>
+      <span style="color:var(--red);">● Double+</span>
+    </div>`;
+
+    body.innerHTML = html;
   },
 
   _renderBreakdown(body) {
