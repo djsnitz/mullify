@@ -25,15 +25,25 @@ const RoundSetup = {
         netscore:   { on:false, buyin:10, places:2 }
       }
     };
-    // Preload players from Firebase BEFORE showing step 1
-    if (!Players.list.length) {
-      try { await Players.load(); } catch(e) { console.error('Player load:', e); }
+    // Load players directly from DB
+    try {
+      const dbPlayers = await DB.getPlayers();
+      console.log('RoundSetup: loaded', dbPlayers.length, 'players from DB');
+      Players.list = dbPlayers;
+      Store.cachePlayers(dbPlayers);
+    } catch(e) {
+      console.error('RoundSetup: DB.getPlayers failed:', e);
+      Players.list = Store.getPlayers();
+      console.log('RoundSetup: fallback cache has', Players.list.length, 'players');
     }
-    // Pre-initialize player assignments so step 2 has data immediately
+    // Pre-initialize player assignments
     if (Players.list.length) {
       this.config.players = Players.list.map(p=>({
         player: p, tee: p.tee||'Blue', playing: false, group: 1, startHole: 1
       }));
+      console.log('RoundSetup: config.players initialized with', this.config.players.length, 'players');
+    } else {
+      console.warn('RoundSetup: No players found!');
     }
     this.renderStep();
   },
