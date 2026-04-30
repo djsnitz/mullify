@@ -400,6 +400,8 @@ const App = {
     this.back();
     this._renderPendingRounds();
   },
+
+  async _renderHistory() {
     const body=document.getElementById('history-body');
     body.innerHTML=`<div class="empty-state"><div class="empty-title">Loading…</div></div>`;
     const history=await DB.getHistory();
