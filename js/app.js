@@ -72,15 +72,13 @@ const Payouts = {
       });
     }
 
-    // ── Low Gross: lowest total gross score wins ──
+    // ── Low Gross: lowest total gross score wins (winner takes all, ties split) ──
     if (r.games?.lowgross?.on) {
       const lgPot = r.games.lowgross.buyin * players.length;
-      const places = r.games.lowgross.places||2;
-      const grossScores = players.map((p)=>{
-        const total = Object.values(r.scores?.[p.id]||{}).reduce((a,b)=>a+(b||0),0);
-        return -total; // negate so higher = better for distributeWithTies (which sorts desc)
-      });
-      this._distributeWithTies(winnings, grossScores, places, lgPot);
+      const grossScores = players.map((p)=>
+        -Object.values(r.scores?.[p.id]||{}).reduce((a,b)=>a+(b||0),0)
+      );
+      this._distributeWithTies(winnings, grossScores, 1, lgPot); // 1 place = winner takes all
     }
 
     // ── Net Score: lowest total net score wins ──
@@ -454,7 +452,7 @@ const App = {
     else if(screen==='players')  Players.load();
     else if(screen==='add-player') Players.resetForm();
     else if(screen==='courses')       Courses.load();
-    else if(screen==='round-setup')   RoundSetup.start();
+    else if(screen==='round-setup')   RoundSetup.start().catch(e=>console.error(e));
     else if(screen==='scorecard') {
       const r=Store.getActiveRound();
       if(r&&r.code&&!Scorecard.round) Scorecard.loadFromDB(r.code);
