@@ -42,8 +42,8 @@ const Players = {
         <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
           <button class="text-btn" style="font-size:12px;" onclick="Players.showEdit('${p.id}')">Edit</button>
           ${isAdmin?`<button class="text-btn" style="color:var(--red);font-size:12px;" onclick="Players.remove('${p.id}')">Remove</button>`:''}
-          ${isAdmin&&Auth.playerProfile?.isOriginalAdmin&&!p.isAdmin?`<button class="text-btn" style="font-size:11px;color:var(--amber);" onclick="Players.makeAdmin('${p.id}')">Make admin</button>`:''}
-          ${isAdmin&&Auth.playerProfile?.isOriginalAdmin&&p.isAdmin&&p.linkedUid!==Auth.currentUser?.uid?`<button class="text-btn" style="font-size:11px;color:var(--text-2);" onclick="Players.removeAdmin('${p.id}')">Remove admin</button>`:''}
+          ${isAdmin&&!p.isAdmin?`<button class="text-btn" style="font-size:11px;color:var(--amber);" onclick="Players.makeAdmin('${p.id}')">Make admin</button>`:''}
+          ${isAdmin&&p.isAdmin&&p.linkedUid!==Auth.currentUser?.uid?`<button class="text-btn" style="font-size:11px;color:var(--text-2);" onclick="Players.removeAdmin('${p.id}')">Remove admin</button>`:''}
         </div>
       </div>`).join('')}</div>
       <div class="note" style="margin-top:12px;">✓ linked = player has signed in and claimed their profile.</div>`;

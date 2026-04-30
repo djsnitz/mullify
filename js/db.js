@@ -74,6 +74,14 @@ const DB = {
   },
 
   // ── Rounds ──
+  async getPendingRounds() {
+    const snap = await this._ref('rounds').get();
+    if (!snap.exists()) return [];
+    return Object.values(snap.val())
+      .filter(r => r.status === 'pending' || r.status === 'active')
+      .sort((a,b) => (a.playDate||0) - (b.playDate||0));
+  },
+
   async createRound(round) {
     const code = this._genCode();
     round.code = code;

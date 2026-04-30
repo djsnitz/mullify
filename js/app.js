@@ -301,13 +301,105 @@ const App = {
     else if(screen==='payouts')       Payouts.renderView();
     else if(screen==='quota')         Quota.render();
     else if(screen==='quota-admin')   Quota.renderAdmin();
-    else if(screen==='history')       this._renderHistory();
+    else if(screen==='pending-rounds') this._renderPendingRounds();
+    else if(screen==='round-detail')   {} // rendered by _openRoundDetail
     else if(screen==='settings')      this._renderSettings();
     else if(screen==='join-round')    this._renderJoinRound();
     else if(screen==='claim-profile') this._renderClaimProfile();
   },
 
-  async _renderHistory() {
+  async _renderPendingRounds() {
+    const body = document.getElementById('pending-rounds-body');
+    body.innerHTML = `<div class="empty-state"><div class="empty-title">Loading…</div></div>`;
+    try {
+      const rounds = await DB.getPendingRounds();
+      if (!rounds.length) {
+        body.innerHTML = `<div class="empty-state"><div class="empty-title">No upcoming rounds</div><div class="empty-sub">Create a new round to get started.</div></div><button class="primary-btn" onclick="App.nav('round-setup')" style="margin:0 16px;">Create a round</button>`;
+        return;
+      }
+      let html = '';
+      rounds.forEach(r => {
+        const isPending = r.status === 'pending';
+        const statusChip = isPending
+          ? `<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--amber-light);color:var(--amber);font-weight:500;">Upcoming</span>`
+          : `<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--green-light);color:var(--green-dark);font-weight:500;">Active</span>`;
+        html += `<div class="card card-pad" style="margin-bottom:10px;cursor:pointer;" onclick="App._openRoundDetail('${r.code}')">
+          <div class="flex-between" style="margin-bottom:8px;">
+            <div style="font-size:15px;font-weight:600;">${r.roundName||'Round'}</div>
+            ${statusChip}
+          </div>
+          <div style="font-size:13px;color:var(--text-2);">${r.course?.name||''} · ${r.playDate||r.date}</div>
+          <div style="font-size:12px;color:var(--text-2);margin-top:4px;">${r.players?.length||0} players · $${r.pot||0} pot</div>
+          <div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center;">
+            <div style="font-family:monospace;font-size:20px;font-weight:700;color:var(--green);letter-spacing:4px;">${r.code}</div>
+            <div style="display:flex;gap:6px;">
+              <button class="outline-btn" style="font-size:12px;padding:6px 10px;" onclick="event.stopPropagation();navigator.clipboard.writeText('${r.code}').then(()=>alert('Code copied!'))">Copy</button>
+              ${isPending&&Auth.isAdmin()?`<button class="primary-btn" style="width:auto;padding:6px 12px;font-size:12px;margin:0;" onclick="event.stopPropagation();App._startPendingRound('${r.code}')">Start round</button>`:''}
+              ${!isPending?`<button class="primary-btn" style="width:auto;padding:6px 12px;font-size:12px;margin:0;" onclick="event.stopPropagation();Scorecard.loadFromDB('${r.code}');App.nav('scorecard');">Resume</button>`:''}
+            </div>
+          </div>
+        </div>`;
+      });
+      body.innerHTML = html;
+    } catch(e) {
+      body.innerHTML = `<div class="note amber">Error loading rounds: ${e.message}</div>`;
+    }
+  },
+
+  async _openRoundDetail(code) {
+    const round = await DB.getRound(code);
+    if (!round) return;
+    document.getElementById('rd-title').textContent = round.roundName||'Round';
+    document.getElementById('rd-sub').textContent = round.playDate||round.date;
+    const body = document.getElementById('round-detail-body');
+    const isPending = round.status === 'pending';
+    const isAdmin = Auth.isAdmin();
+
+    let html = `<div class="card card-pad" style="margin-bottom:12px;">
+      <div style="text-align:center;padding:8px 0;">
+        <div style="font-size:12px;color:var(--text-2);margin-bottom:4px;">Round code</div>
+        <div style="font-family:monospace;font-size:44px;font-weight:700;color:var(--green-dark);letter-spacing:6px;">${code}</div>
+        <div style="display:flex;gap:8px;justify-content:center;margin-top:10px;">
+          <button class="outline-btn" onclick="navigator.clipboard.writeText('${code}').then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy code',2000)})">Copy code</button>
+          <button class="outline-btn" onclick="navigator.share&&navigator.share({title:'Join my Mullify round',text:'Join ${round.roundName}!\\nCode: ${code}\\nhttps://mullify.vercel.app'})">Share ↗</button>
+        </div>
+      </div>
+    </div>`;
+
+    html += `<div class="card"><div class="balance-row"><span class="balance-label">Course</span><span>${round.course?.name||'—'}</span></div><div class="balance-row"><span class="balance-label">Date</span><span>${round.playDate||round.date}</span></div><div class="balance-row"><span class="balance-label">Format</span><span>${round.holes==='18'?'18 holes':round.holes==='front9'?'Front 9':'Back 9'} · Start H${round.startHole}</span></div><div class="balance-row"><span class="balance-label">Players</span><span>${round.players?.length||0}</span></div><div class="balance-row" style="border-bottom:none;"><span class="balance-label">Pot</span><span class="b-green fw-6">$${round.pot||0}</span></div></div>`;
+
+    html += `<div class="section-label">Players</div><div class="card">`;
+    (round.players||[]).forEach(p => {
+      html += `<div class="player-row"><div class="avatar">${p.initials}</div><div class="player-info"><div class="player-name">${p.name}</div><div class="player-meta">HCP ${p.hcp} · ${p.tee} · Group ${p.group||1}</div></div></div>`;
+    });
+    html += `</div>`;
+
+    if (isAdmin && isPending) {
+      html += `<button class="primary-btn" onclick="App._startPendingRound('${code}')">Start this round</button>`;
+      html += `<button class="ghost-btn" style="margin-top:8px;color:var(--red);border-color:var(--red);" onclick="App._cancelRound('${code}')">Cancel round</button>`;
+    } else if (!isPending) {
+      html += `<button class="primary-btn" onclick="Scorecard.loadFromDB('${code}');App.nav('scorecard');">Go to scorecard →</button>`;
+    }
+
+    body.innerHTML = html;
+    this.nav('round-detail');
+  },
+
+  async _startPendingRound(code) {
+    if (!confirm('Start this round now?')) return;
+    await DB.updateRound(code, {status:'active'});
+    const round = await DB.getRound(code);
+    Store.saveActiveRound({...round, code});
+    await Scorecard.loadFromDB(code);
+    this.nav('scorecard');
+  },
+
+  async _cancelRound(code) {
+    if (!confirm('Cancel this round? This cannot be undone.')) return;
+    await DB.updateRound(code, {status:'cancelled'});
+    this.back();
+    this._renderPendingRounds();
+  },
     const body=document.getElementById('history-body');
     body.innerHTML=`<div class="empty-state"><div class="empty-title">Loading…</div></div>`;
     const history=await DB.getHistory();

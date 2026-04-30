@@ -48,6 +48,13 @@ const RoundSetup = {
       <label class="form-label">Round name</label>
       <input class="form-input" type="text" id="round-name-input" placeholder="e.g. Saturday Morning Round" value="${this.config.roundName||''}" oninput="RoundSetup.config.roundName=this.value" />
     </div>`;
+
+    // Date of play
+    const today = new Date().toISOString().split('T')[0];
+    html += `<div class="form-group">
+      <label class="form-label">Date of play</label>
+      <input class="form-input" type="date" id="round-date-input" value="${this.config.playDate||today}" oninput="RoundSetup.config.playDate=this.value" />
+    </div>`;
     if (!courses.length) {
       html += `<div class="note amber">No courses downloaded. Download a course first.</div>`;
       html += `<button class="ghost-btn" onclick="App.nav('courses')">Go to Courses →</button>`;
@@ -366,7 +373,9 @@ const RoundSetup = {
           </div>
         </div>
       </div>
-      <button class="primary-btn" id="start-round-btn" onclick="RoundSetup.startRound()">Create round &amp; get code</button>
+      <button class="primary-btn" id="start-round-btn" onclick="RoundSetup.startRound('active')">Create round &amp; start now</button>
+      <button class="ghost-btn" id="save-pending-btn" onclick="RoundSetup.startRound('pending')" style="margin-top:8px;">Save as upcoming round</button>
+      <div class="note" style="margin-top:8px;">Saving as upcoming lets you share the code now so players can confirm, then start when ready.</div>
       <button class="ghost-btn" onclick="RoundSetup.back()">Back</button>`;
     this.config.entryMode = 'both';
   },
@@ -391,32 +400,33 @@ const RoundSetup = {
     return [...allHoles.slice(startIdx), ...allHoles.slice(0, startIdx)];
   },
 
-  async startRound() {
-    const btn = document.getElementById('start-round-btn');
-    btn.disabled = true; btn.textContent = 'Creating round…';
+  async startRound(status='active') {
+    const btn = document.getElementById(status==='active'?'start-round-btn':'save-pending-btn');
+    if (btn) { btn.disabled=true; btn.textContent=status==='active'?'Creating round…':'Saving…'; }
     const c = this.config;
     const activePlayers = c.players.filter(p=>p.playing);
     const buyin = ['skins','stableford','ctp','quota'].reduce((s,k)=>s+(c.games[k].on?c.games[k].buyin:0),0);
 
-    // Build per-player hole indexes (shotgun = different start per group)
+    // Build per-player hole indexes
     const playersWithHoles = activePlayers.map(pp => {
       let startHole;
       if (c.shotgun) {
-        const group = c.groups[pp.group - 1];
+        const group = c.groups[pp.group-1];
         startHole = group ? group.startHole : c.startHole;
       } else {
         startHole = pp.startHole || c.startHole;
       }
       const allHoles = c.holes==='front9'?[0,1,2,3,4,5,6,7,8]:c.holes==='back9'?[9,10,11,12,13,14,15,16,17]:Array.from({length:18},(_,i)=>i);
-      const startIdx = allHoles.findIndex(h => h === startHole - 1);
-      const holeIndexes = startIdx > 0 ? [...allHoles.slice(startIdx), ...allHoles.slice(0, startIdx)] : allHoles;
+      const startIdx = allHoles.findIndex(h=>h===startHole-1);
+      const holeIndexes = startIdx>0?[...allHoles.slice(startIdx),...allHoles.slice(0,startIdx)]:allHoles;
       return {...pp.player, tee:pp.tee, group:pp.group, startHole, holeIndexes};
     });
 
     const sharedHoleIndexes = this._buildHoleIndexes();
 
     const round = {
-      roundName: c.roundName || 'Round ' + new Date().toLocaleDateString(),
+      roundName: c.roundName||'Round '+new Date().toLocaleDateString(),
+      playDate: c.playDate || new Date().toISOString().split('T')[0],
       course: c.course,
       date: new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'}),
       players: playersWithHoles,
@@ -434,28 +444,30 @@ const RoundSetup = {
       scores: {},
       currentHole: sharedHoleIndexes[0],
       entryMode: c.entryMode,
+      status,
       adminUid: Auth.currentUser?.uid
     };
 
     try {
       const created = await DB.createRound(round);
-      Store.saveActiveRound(created);
-      this._showCode(created.code, created);
+      if (status === 'active') Store.saveActiveRound(created);
+      this._showCode(created.code, created, status);
     } catch(e) {
-      btn.disabled = false; btn.textContent = 'Create round & get code';
-      alert('Error creating round: ' + e.message);
+      if (btn) { btn.disabled=false; btn.textContent=status==='active'?'Create round & start now':'Save as upcoming round'; }
+      alert('Error creating round: '+e.message);
     }
   },
 
-  _showCode(code, round) {
+  _showCode(code, round, status='active') {
     const holesLabel = round.holes==='18'?'18 holes':round.holes==='front9'?'Front 9':'Back 9';
+    const isPending = status === 'pending';
     document.getElementById('setup-body').innerHTML = `
       <div style="text-align:center;padding:20px 0 16px;">
-        <div style="font-size:13px;color:var(--text-2);margin-bottom:8px;">Round created! Share this code with your group.</div>
+        <div style="font-size:13px;color:var(--text-2);margin-bottom:8px;">${isPending?'Round saved! Share this code so players can join.':'Round created! Share this code with your group.'}</div>
         <div style="background:var(--green-light);border:2px solid var(--green-mid);border-radius:var(--radius);padding:20px;margin:0 0 12px;">
           <div style="font-size:13px;color:var(--green);margin-bottom:6px;font-weight:500;">${round.roundName}</div>
           <div style="font-size:56px;font-weight:700;color:var(--green-dark);letter-spacing:8px;font-family:'DM Mono',monospace;">${code}</div>
-          <div style="font-size:12px;color:var(--green);margin-top:6px;">Players: Mullify → Join round → enter code</div>
+          <div style="font-size:12px;color:var(--green);margin-top:6px;">${isPending?'Players join now · Admin starts when ready':'Players: Mullify → Join round → enter code'}</div>
         </div>
         <div style="display:flex;gap:8px;justify-content:center;">
           <button class="outline-btn" onclick="navigator.clipboard.writeText('${code}').then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy code',2000)})">Copy code</button>
@@ -464,11 +476,17 @@ const RoundSetup = {
       </div>
       <div class="card card-pad" style="margin-bottom:10px;">
         <div class="balance-row"><span class="balance-label">Course</span><span>${round.course.name}</span></div>
+        <div class="balance-row"><span class="balance-label">Date</span><span>${round.playDate||round.date}</span></div>
         <div class="balance-row"><span class="balance-label">Format</span><span>${holesLabel} · Start H${round.startHole}</span></div>
         <div class="balance-row"><span class="balance-label">Players</span><span>${round.players.length}</span></div>
         <div class="balance-row" style="border-bottom:none;"><span class="balance-label">Pot</span><span class="b-green fw-6">$${round.pot}</span></div>
       </div>
-      <button class="primary-btn" onclick="Scorecard.loadFromDB('${code}');App.nav('scorecard');">Go to scorecard →</button>
+      ${isPending?`
+        <button class="primary-btn" onclick="App.nav('pending-rounds')">View upcoming rounds →</button>
+        <button class="ghost-btn" style="margin-top:8px;" onclick="Scorecard.loadFromDB('${code}');App.nav('scorecard');">Go to scorecard</button>
+      `:`
+        <button class="primary-btn" onclick="Scorecard.loadFromDB('${code}');App.nav('scorecard');">Go to scorecard →</button>
+      `}
       <button class="ghost-btn" style="margin-top:8px;" onclick="App.nav('home')">Back to home</button>`;
   },
 

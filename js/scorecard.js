@@ -141,16 +141,40 @@ const Scorecard = {
   _canEdit(playerIdx) {
     if (this.isAdmin) return true;
     if (this.round?.entryMode === 'admin') return false;
-    return this.round?.players?.[playerIdx]?.id === this.myPlayerId;
+    const me = this.round?.players?.find(p => p.id === this.myPlayerId);
+    const target = this.round?.players?.[playerIdx];
+    if (!me || !target) return false;
+    // Same group can enter scores for each other
+    return me.group === target.group;
   },
 
   _renderEntry(body) {
     const r = this.round;
     const h = r.currentHole || 0;
     const players = r.players || [];
-    let html = '';
+    const me = players.find(p => p.id === this.myPlayerId);
+    const myGroup = me?.group || null;
 
-    players.forEach((p, i) => {
+    // Sort: my group first, then other groups
+    const sortedPlayers = [...players].sort((a,b) => {
+      if (myGroup) {
+        if (a.group===myGroup && b.group!==myGroup) return -1;
+        if (b.group===myGroup && a.group!==myGroup) return 1;
+      }
+      return (a.group||1) - (b.group||1);
+    });
+
+    let html = '';
+    let lastGroup = null;
+
+    sortedPlayers.forEach((p) => {
+      const i = players.indexOf(p);
+      // Group divider
+      if (p.group && p.group !== lastGroup) {
+        const isMyGroup = p.group === myGroup;
+        html += `<div style="font-size:11px;font-weight:600;color:${isMyGroup?'var(--green)':'var(--text-2)'};padding:8px 0 4px;text-transform:uppercase;letter-spacing:0.5px;">Group ${p.group}${isMyGroup?' · Your group':''}</div>`;
+        lastGroup = p.group;
+      }
       const tee = p.tee || 'Blue';
       const hd  = r.course.tees[tee] || Object.values(r.course.tees)[0];
       const par = hd.par[h];
