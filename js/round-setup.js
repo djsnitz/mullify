@@ -28,22 +28,17 @@ const RoundSetup = {
     // Load players directly from DB
     try {
       const dbPlayers = await DB.getPlayers();
-      console.log('RoundSetup: loaded', dbPlayers.length, 'players from DB');
-      Players.list = dbPlayers;
-      Store.cachePlayers(dbPlayers);
+      const validPlayers = dbPlayers.filter(p => p && p.id && p.name);
+      Players.list = validPlayers;
+      Store.cachePlayers(validPlayers);
     } catch(e) {
-      console.error('RoundSetup: DB.getPlayers failed:', e);
       Players.list = Store.getPlayers();
-      console.log('RoundSetup: fallback cache has', Players.list.length, 'players');
     }
     // Pre-initialize player assignments
     if (Players.list.length) {
       this.config.players = Players.list.map(p=>({
         player: p, tee: p.tee||'Blue', playing: false, group: 1, startHole: 1
       }));
-      console.log('RoundSetup: config.players initialized with', this.config.players.length, 'players');
-    } else {
-      console.warn('RoundSetup: No players found!');
     }
     this.renderStep();
   },
