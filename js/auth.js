@@ -21,7 +21,32 @@ const Auth = {
             this.playerProfile = profile;
             App.onAuthReady(true);
           } else {
-            App.onAuthReady(false);
+            // Try to auto-match by email to an existing unlinked player
+            try {
+              const allPlayers = await DB.getPlayers();
+              const match = allPlayers.find(p =>
+                p.email && user.email &&
+                p.email.toLowerCase() === user.email.toLowerCase() &&
+                !p.linkedUid
+              );
+              if (match) {
+                // Auto-link without showing claim screen
+                const autoProfile = {
+                  uid: user.uid, email: user.email,
+                  displayName: user.displayName || match.name,
+                  playerId: match.id, playerName: match.name,
+                  linkedAt: Date.now()
+                };
+                await DB.saveUserProfile(user.uid, autoProfile);
+                await DB.updatePlayer(match.id, { linkedUid: user.uid });
+                this.playerProfile = autoProfile;
+                App.onAuthReady(true);
+              } else {
+                App.onAuthReady(false);
+              }
+            } catch(e) {
+              App.onAuthReady(false);
+            }
           }
         } catch(e) {
           console.error('Profile fetch error:', e);
@@ -152,9 +177,9 @@ const Auth = {
     const confirm  = document.getElementById('create-password-confirm')?.value;
     const btn      = document.getElementById('create-btn');
 
-    if (!first || !last)       { this._showCreateError('Please enter your first and last name.'); return; }
-    if (!email || !password)   { this._showCreateError('Please enter email and password.'); return; }
-    if (password.length < 6)   { this._showCreateError('Password must be at least 6 characters.'); return; }
+    if (!first || !last)      { this._showCreateError('Please enter your first and last name.'); return; }
+    if (!email || !password)  { this._showCreateError('Please enter email and password.'); return; }
+    if (password.length < 6)  { this._showCreateError('Password must be at least 6 characters.'); return; }
     if (password !== confirm)  { this._showCreateError('Passwords do not match.'); return; }
 
     btn.textContent = 'Creating account…';
@@ -165,32 +190,51 @@ const Auth = {
       const cred = await firebase.auth().createUserWithEmailAndPassword(email, password);
       const uid  = cred.user.uid;
 
-      // Auto-create player profile in DB
-      const hcp   = 18;
-      const quota = 18;
-      const player = {
-        name: first + ' ' + last,
-        first, last,
-        initials: (first[0] + last[0]).toUpperCase(),
-        email, phone: phone||'', ghin: ghin||'',
-        hcp, quota,
-        tee: 'Blue',
-        history: [],
-        linkedUid: uid,
-        createdAt: Date.now()
-      };
-      const saved = await DB.savePlayer(player);
+      // Check if a player already exists with this email (admin pre-added them)
+      const allPlayers = await DB.getPlayers();
+      const existing = allPlayers.find(p =>
+        p.email && p.email.toLowerCase() === email.toLowerCase() && !p.linkedUid
+      );
 
-      // Link auth profile to player
-      const profile = {
-        uid, email,
-        displayName: first + ' ' + last,
-        playerId: saved.id,
-        playerName: first + ' ' + last,
-        linkedAt: Date.now()
-      };
-      await DB.saveUserProfile(uid, profile);
-      this.playerProfile = profile;
+      if (existing) {
+        // Link to the existing player profile instead of creating a new one
+        const profile = {
+          uid, email,
+          displayName: existing.name,
+          playerId: existing.id,
+          playerName: existing.name,
+          linkedAt: Date.now()
+        };
+        await DB.saveUserProfile(uid, profile);
+        await DB.updatePlayer(existing.id, { linkedUid: uid });
+        this.playerProfile = profile;
+      } else {
+        // No existing player — create a new one
+        const hcp   = 18;
+        const quota = 18;
+        const player = {
+          name: first + ' ' + last,
+          first, last,
+          initials: (first[0] + last[0]).toUpperCase(),
+          email, phone: phone||'', ghin: ghin||'',
+          hcp, quota, quota9: 9,
+          tee: 'Blue',
+          history: [],
+          linkedUid: uid,
+          isAdmin: false,
+          createdAt: Date.now()
+        };
+        const saved = await DB.savePlayer(player);
+        const profile = {
+          uid, email,
+          displayName: first + ' ' + last,
+          playerId: saved.id,
+          playerName: first + ' ' + last,
+          linkedAt: Date.now()
+        };
+        await DB.saveUserProfile(uid, profile);
+        this.playerProfile = profile;
+      }
 
       this.hideCreateModal();
     } catch(e) {
