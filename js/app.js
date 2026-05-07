@@ -792,6 +792,10 @@ const Home = {
         </div>
       </div>`;
     } else { activeEl.style.display='none'; }
+
+    // Show admin-only buttons
+    const seasonAdminBtn = document.getElementById('home-season-admin-btn');
+    if (seasonAdminBtn) seasonAdminBtn.style.display = Auth.isAdmin() ? 'flex' : 'none';
   }
 };
 
