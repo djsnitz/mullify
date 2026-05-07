@@ -170,6 +170,7 @@
       <button class="primary-btn" style="background:none;border:1.5px solid var(--green);color:var(--green);" onclick="App.nav('join-round')">Join a round (enter code)</button>
       <button class="primary-btn" style="background:none;border:1.5px solid var(--border-2);color:var(--text);" onclick="App.nav('pending-rounds')">Upcoming rounds</button>
       <div class="action-list">
+        <button class="action-row" onclick="App.nav('season')"><span>Season winnings</span><span class="chevron">›</span></button>
         <button class="action-row" onclick="App.nav('courses')"><span>Search &amp; download courses</span><span class="chevron">›</span></button>
         <button class="action-row" onclick="App.nav('players')"><span>Manage players</span><span class="chevron">›</span></button>
         <button class="action-row" onclick="App.nav('quota')"><span>Quota standings</span><span class="chevron">›</span></button>
@@ -184,7 +185,17 @@
     </div>
   </div>
 
-  <!-- Pending Rounds -->
+  <!-- Season Leaderboard -->
+  <div id="screen-season" class="screen">
+    <div class="top-bar"><button class="back-btn" onclick="App.back()">‹</button><div class="top-bar-title">Season winnings</div><button class="text-btn" onclick="App.nav('season-admin')" id="season-admin-btn" style="display:none;">Admin</button></div>
+    <div class="screen-body" id="season-body"></div>
+  </div>
+
+  <!-- Season Admin -->
+  <div id="screen-season-admin" class="screen">
+    <div class="top-bar"><button class="back-btn" onclick="App.back()">‹</button><div class="top-bar-title">Season admin</div><div></div></div>
+    <div class="screen-body" id="season-admin-body"></div>
+  </div>
   <div id="screen-pending-rounds" class="screen">
     <div class="top-bar"><button class="back-btn" onclick="App.back()">‹</button><div class="top-bar-title">Upcoming rounds</div><div></div></div>
     <div class="screen-body" id="pending-rounds-body"></div>
