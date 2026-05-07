@@ -5,15 +5,30 @@ const Payouts = {
   paidOut: {},
 
   buildFromRound(round) {
-    this.round = round;
-    this.paidOut = {};
-    this.view = 'cashout';
-    document.getElementById('payout-pot-chip').textContent = '$' + (round.pot||0);
+    // Always load fresh from DB to ensure scores are included
+    if (round.code) {
+      DB.getRound(round.code).then(fullRound => {
+        if (fullRound) this.round = {...fullRound, code: round.code};
+        else this.round = round;
+        this.paidOut = {};
+        this.view = 'cashout';
+        document.getElementById('payout-pot-chip').textContent = '$' + (this.round.pot||0);
+        this.renderView();
+      });
+    } else {
+      this.round = round;
+      this.paidOut = {};
+      this.view = 'cashout';
+      document.getElementById('payout-pot-chip').textContent = '$' + (round.pot||0);
+    }
   },
 
   renderView() {
     const body = document.getElementById('payouts-body');
-    if (!this.round) { body.innerHTML=`<div class="empty-state"><div class="empty-title">No round data</div><div class="empty-sub">Complete a round to see payouts.</div></div>`; return; }
+    if (!this.round) {
+      body.innerHTML=`<div class="empty-state"><div class="empty-title">Loading payouts…</div></div>`;
+      return;
+    }
     if (this.view==='cashout')        this._renderCashout(body);
     else if (this.view==='breakdown') this._renderBreakdown(body);
     else if (this.view==='scorecard') this._renderScorecard(body);
@@ -33,11 +48,62 @@ const Payouts = {
     const players = r.players||[];
     const winnings = players.map(()=>0);
 
-    // ── Skins: no rounding, exact decimals ──
+    // Helper: calculate stableford points for a player from saved scores
+    const calcPts = (p, pts) => {
+      const tee = p.tee||'Blue';
+      const hd = r.course?.tees?.[tee]||Object.values(r.course?.tees||{})[0];
+      const holeIndexes = r.holeIndexes||Array.from({length:18},(_,i)=>i);
+      let total = 0;
+      holeIndexes.forEach(h => {
+        const gross = r.scores?.[p.id]?.[h];
+        if (gross===undefined||gross===null) return;
+        // Calculate strokes given on this hole
+        const hcpIdx = hd?.hcp?.[h]||1;
+        let strokes = 0;
+        if (r.useHandicap !== false) {
+          if (p.hcp >= hcpIdx) strokes++;
+          if (p.hcp >= 18 + hcpIdx) strokes++;
+        }
+        const net = gross - strokes;
+        const par = hd?.par?.[h]||4;
+        const d = net - par;
+        if (d<=-2) total+=pts.eagle||4;
+        else if (d===-1) total+=pts.birdie||3;
+        else if (d===0)  total+=pts.par||2;
+        else if (d===1)  total+=pts.bogey||1;
+        else if (d===2)  total+=pts.double||0;
+        else total+=pts.worse||0;
+      });
+      return total;
+    };
+
+    // Helper: gross total for a player
+    const grossTotal = (p) =>
+      Object.values(r.scores?.[p.id]||{}).reduce((a,b)=>a+(b||0),0);
+
+    // Helper: net total for a player
+    const netTotal = (p) => {
+      const tee = p.tee||'Blue';
+      const hd = r.course?.tees?.[tee]||Object.values(r.course?.tees||{})[0];
+      const holeIndexes = r.holeIndexes||Array.from({length:18},(_,i)=>i);
+      return holeIndexes.reduce((sum,h) => {
+        const gross = r.scores?.[p.id]?.[h];
+        if (gross===undefined||gross===null) return sum;
+        const hcpIdx = hd?.hcp?.[h]||1;
+        let strokes = 0;
+        if (r.useHandicap !== false) {
+          if (p.hcp >= hcpIdx) strokes++;
+          if (p.hcp >= 18+hcpIdx) strokes++;
+        }
+        return sum + (gross - strokes);
+      }, 0);
+    };
+
+    // ── Skins: exact decimals ──
     if (r.games?.skins?.on) {
       const skinPot = r.games.skins.buyin * players.length;
       const won = Object.values(r.skinResults||{}).filter(s=>s&&!s.tied);
-      const perSkin = won.length>0 ? skinPot/won.length : 0; // no rounding
+      const perSkin = won.length>0 ? skinPot/won.length : 0;
       won.forEach(s=>{ if(s.winner!==undefined) winnings[s.winner]+=perSkin; });
     }
 
@@ -45,11 +111,12 @@ const Payouts = {
     if (r.games?.stableford?.on) {
       const sfPot = r.games.stableford.buyin * players.length;
       const places = r.games.stableford.places||2;
-      const pts = players.map((_,i)=>Scorecard._totalPts?Scorecard._totalPts(i):0);
-      this._distributeWithTies(winnings, pts, places, sfPot);
+      const pts = r.games.stableford.pts||{eagle:4,birdie:3,par:2,bogey:1,double:0,worse:0};
+      const scores = players.map(p=>calcPts(p,pts));
+      this._distributeWithTies(winnings, scores, places, sfPot);
     }
 
-    // ── CTP: one winner per par 3 hole — unclaimed holes carry to quota ──
+    // ── CTP + carryover to quota ──
     let ctpCarryover = 0;
     if (r.games?.ctp?.on) {
       const ctpPot = r.games.ctp.buyin * players.length;
@@ -57,55 +124,44 @@ const Payouts = {
       const hd = r.course?.tees?.[tee]||Object.values(r.course?.tees||{})[0];
       const holeIndexes = r.holeIndexes||Array.from({length:18},(_,i)=>i);
       const par3Holes = holeIndexes.filter(h=>(hd?.par?.[h]||4)===3);
-      const perHole = par3Holes.length > 0 ? ctpPot / par3Holes.length : 0;
+      const perHole = par3Holes.length>0 ? ctpPot/par3Holes.length : 0;
       par3Holes.forEach(h=>{
         const res = (r.ctpResults||{})[h];
         if (res?.winnerId) {
           const idx = players.findIndex(p=>p.id===res.winnerId);
           if(idx>=0) winnings[idx]+=perHole;
         } else {
-          ctpCarryover += perHole; // no on-green shot — carries to quota
+          ctpCarryover+=perHole;
         }
       });
     }
 
-    // ── Quota: rank by (scored - quota), with tie splitting + CTP carryover ──
+    // ── Quota: rank by pts-minus-quota, with tie splitting + CTP carryover ──
     if (r.games?.quota?.on) {
       const quotaPot = (r.games.quota.buyin * players.length) + ctpCarryover;
       const places = r.games.quota.places||2;
       const is9hole = r.holes==='front9'||r.holes==='back9';
-      const diffs = players.map((p,i)=>{
+      const qpts = r.games.quota.pts||r.games.stableford?.pts||{eagle:5,birdie:4,par:3,bogey:2,double:1,worse:0};
+      const diffs = players.map(p=>{
         const playerQuota = is9hole?(p.quota9||Math.round((p.quota||18)/2)):(p.quota||18);
-        const pts = Scorecard._totalPts?Scorecard._totalPts(i):0;
-        return pts - playerQuota;
+        return calcPts(p,qpts) - playerQuota;
       });
       this._distributeWithTies(winnings, diffs, places, quotaPot);
     }
 
-    // ── Low Gross: lowest total gross score wins (winner takes all, ties split) ──
+    // ── Low Gross: winner takes all ──
     if (r.games?.lowgross?.on) {
       const lgPot = r.games.lowgross.buyin * players.length;
-      const grossScores = players.map((p)=>
-        -Object.values(r.scores?.[p.id]||{}).reduce((a,b)=>a+(b||0),0)
-      );
-      this._distributeWithTies(winnings, grossScores, 1, lgPot); // 1 place = winner takes all
+      const scores = players.map(p=>-grossTotal(p)); // negate: lower=better
+      this._distributeWithTies(winnings, scores, 1, lgPot);
     }
 
-    // ── Net Score: lowest total net score wins ──
+    // ── Net Score: lowest net wins ──
     if (r.games?.netscore?.on) {
       const nsPot = r.games.netscore.buyin * players.length;
       const places = r.games.netscore.places||2;
-      const netScores = players.map((p,i)=>{
-        const tee = p.tee||'Blue';
-        const hd = r.course?.tees?.[tee]||Object.values(r.course?.tees||{})[0];
-        const total = (r.holeIndexes||Array.from({length:18},(_,i)=>i)).reduce((sum,h)=>{
-          const gross = r.scores?.[p.id]?.[h];
-          if(gross===undefined||gross===null) return sum;
-          return sum + (Scorecard._net?Scorecard._net(gross,p.hcp,hd?.hcp?.[h]||1):gross);
-        },0);
-        return -total; // negate: lower net = better
-      });
-      this._distributeWithTies(winnings, netScores, places, nsPot);
+      const scores = players.map(p=>-netTotal(p));
+      this._distributeWithTies(winnings, scores, places, nsPot);
     }
 
     return winnings;
@@ -443,7 +499,10 @@ const Payouts = {
   },
 
   async closeRound() {
-    const r = this.round;
+    const r = this.round || Scorecard.round;
+    if (!r) { alert('No round data found. Please go back to the scorecard and try again.'); return; }
+    // Ensure Payouts has the round
+    if (!this.round) this.round = r;
     const rules = await DB.getQuotaRules();
     const players = await DB.getPlayers();
     const is9hole = r.holes==='front9' || r.holes==='back9';
@@ -516,22 +575,31 @@ const Payouts = {
     }
 
     // Save full round to history including player scores
+    // Sanitize scores - remove any undefined/null values Firebase rejects
+    const cleanScores = {};
+    Object.entries(r.scores||{}).forEach(([pid, holes]) => {
+      cleanScores[pid] = {};
+      Object.entries(holes||{}).forEach(([h, s]) => {
+        if (s !== undefined && s !== null) cleanScores[pid][h] = s;
+      });
+    });
+
     await DB.closeRound(r.code||r.id, {
-      roundName: r.roundName,
-      course: r.course?.name,
-      date: r.date,
-      holes: r.holes,
-      pot: r.pot,
-      playerCount: r.players?.length,
+      roundName: r.roundName||'',
+      course: r.course?.name||'',
+      date: r.date||'',
+      holes: r.holes||'18',
+      pot: r.pot||0,
+      playerCount: r.players?.length||0,
       players: r.players?.map((rp,i)=>({
-        id: rp.id, name: rp.name, initials: rp.initials,
-        hcp: rp.hcp, tee: rp.tee, group: rp.group,
+        id: rp.id||'', name: rp.name||'', initials: rp.initials||'',
+        hcp: rp.hcp||0, tee: rp.tee||'Blue', group: rp.group||1,
         won: winnings[i]||0
-      })),
+      }))||[],
       games: Object.keys(r.games||{}).filter(k=>r.games[k].on),
-      scores: r.scores,
-      skinResults: r.skinResults,
-      ctpResults: r.ctpResults
+      scores: cleanScores,
+      skinResults: r.skinResults||{},
+      ctpResults: r.ctpResults||{}
     });
     Store.clearActiveRound();
     Scorecard.round = null;
