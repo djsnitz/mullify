@@ -155,7 +155,13 @@ const DB = {
 
   async getQuotaRules() {
     const snap = await this._ref('quotaRules').get();
-    return snap.exists() ? snap.val() : { upThresh:3, upAmt:1, dnThresh:3, dnAmt:1, maxUp:3, maxDn:2 };
+    const defaults = {
+      // 18-hole rules
+      upThresh:3, upAmt:1, dnThresh:3, dnAmt:1, maxUp:3, maxDn:2,
+      // 9-hole rules (same defaults, adjustable independently)
+      upThresh9:3, upAmt9:1, dnThresh9:3, dnAmt9:1, maxUp9:3, maxDn9:2
+    };
+    return snap.exists() ? {...defaults, ...snap.val()} : defaults;
   },
 
   async saveQuotaRules(rules) {

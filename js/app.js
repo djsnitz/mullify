@@ -443,26 +443,96 @@ const Payouts = {
   },
 
   async closeRound() {
-    const r=this.round;
-    const rules=await DB.getQuotaRules();
-    const players=await DB.getPlayers();
-    // Update quotas
-    for(const rp of r.players||[]){
-      const sp=players.find(p=>p.id===rp.id);
-      if(!sp)continue;
-      const pts=Scorecard._totalPts?Scorecard._totalPts(r.players.indexOf(rp)):0;
-      const diff=pts-sp.quota;
-      let adj=0;
-      if(diff>=rules.upThresh)adj=Math.min(Math.floor(diff/rules.upThresh)*rules.upAmt,rules.maxUp);
-      else if(diff<=-rules.dnThresh)adj=-Math.min(Math.floor(Math.abs(diff)/rules.dnThresh)*rules.dnAmt,rules.maxDn);
-      await DB.updatePlayer(sp.id,{quota:sp.quota+adj,history:[...(sp.history||[]),({date:r.date,course:r.course?.name,quota:sp.quota,scored:pts,adj})].slice(-20)});
+    const r = this.round;
+    const rules = await DB.getQuotaRules();
+    const players = await DB.getPlayers();
+    const is9hole = r.holes==='front9' || r.holes==='back9';
+
+    for (const rp of r.players||[]) {
+      const sp = players.find(p=>p.id===rp.id);
+      if (!sp) continue;
+
+      // Calculate points from saved scores directly — don't rely on Scorecard being in memory
+      const sfPts = r.games?.stableford?.pts || r.games?.quota?.pts || {eagle:4,birdie:3,par:2,bogey:1,double:0,worse:0};
+      const tee = rp.tee||'Blue';
+      const hd = r.course?.tees?.[tee]||Object.values(r.course?.tees||{})[0];
+      const holeIndexes = r.holeIndexes||Array.from({length:18},(_,i)=>i);
+      let pts = 0;
+      holeIndexes.forEach(h=>{
+        const gross = r.scores?.[rp.id]?.[h];
+        if(gross===undefined||gross===null) return;
+        const net = gross - this._strokesOnHole(rp.hcp, hd?.hcp?.[h]||1, r.useHandicap);
+        const d = net - (hd?.par?.[h]||4);
+        if(d<=-2) pts+=sfPts.eagle;
+        else if(d===-1) pts+=sfPts.birdie;
+        else if(d===0)  pts+=sfPts.par;
+        else if(d===1)  pts+=sfPts.bogey;
+        else if(d===2)  pts+=sfPts.double;
+        else pts+=sfPts.worse;
+      });
+
+      // Use correct quota and rules for round type
+      const playerQuota = is9hole ? (sp.quota9||Math.round((sp.quota||18)/2)) : (sp.quota||18);
+      const diff = pts - playerQuota;
+
+      let adj = 0;
+      if (is9hole) {
+        // Use 9H-specific rules from DB
+        if (diff >= rules.upThresh9)  adj = Math.min(Math.floor(diff/rules.upThresh9)*rules.upAmt9, rules.maxUp9);
+        else if (diff <= -rules.dnThresh9) adj = -Math.min(Math.floor(Math.abs(diff)/rules.dnThresh9)*rules.dnAmt9, rules.maxDn9);
+      } else {
+        if (diff >= rules.upThresh)  adj = Math.min(Math.floor(diff/rules.upThresh)*rules.upAmt, rules.maxUp);
+        else if (diff <= -rules.dnThresh) adj = -Math.min(Math.floor(Math.abs(diff)/rules.dnThresh)*rules.dnAmt, rules.maxDn);
+      }
+
+      // Update the right quota field
+      const updates = {
+        history: [...(sp.history||[]), {
+          date: r.date,
+          course: r.course?.name,
+          holes: r.holes,
+          quota: playerQuota,
+          scored: pts,
+          diff,
+          adj,
+          roundCode: r.code
+        }].slice(-30)
+      };
+      if (is9hole) {
+        updates.quota9 = (sp.quota9||Math.round((sp.quota||18)/2)) + adj;
+      } else {
+        updates.quota = sp.quota + adj;
+      }
+      await DB.updatePlayer(sp.id, updates);
     }
-    await DB.closeRound(r.code||r.id,{course:r.course?.name,date:r.date,pot:r.pot,players:r.players?.length});
+
+    // Save full round to history including player scores
+    await DB.closeRound(r.code||r.id, {
+      roundName: r.roundName,
+      course: r.course?.name,
+      date: r.date,
+      holes: r.holes,
+      pot: r.pot,
+      playerCount: r.players?.length,
+      players: r.players?.map(rp=>({
+        id: rp.id, name: rp.name, initials: rp.initials,
+        hcp: rp.hcp, tee: rp.tee, group: rp.group
+      })),
+      games: Object.keys(r.games||{}).filter(k=>r.games[k].on)
+    });
     Store.clearActiveRound();
-    Scorecard.round=null;
-    this.round=null;
+    Scorecard.round = null;
+    this.round = null;
     App.nav('home');
     Home.render();
+  },
+
+  _strokesOnHole(hcp, holeHcpIdx, useHandicap) {
+    if (!useHandicap) return 0;
+    let s = 0;
+    if (hcp >= holeHcpIdx) s++;
+    if (hcp >= 18 + holeHcpIdx) s++;
+    return s;
   }
 };
 
@@ -474,14 +544,48 @@ const Quota = {
     const players=await DB.getPlayers();
     const rules=await DB.getQuotaRules();
     if(!players.length){body.innerHTML=`<div class="empty-state"><div class="empty-title">No players yet</div></div>`;return;}
-    let html=`<div class="note">Beat quota by ${rules.upThresh}+ pts → +${rules.upAmt} quota. Miss by ${rules.dnThresh}+ → −${rules.dnAmt} quota.</div><div class="card">`;
+
+    let html=`<div class="note">18H &amp; 9H rules are set independently in Quota Rules. Tap Rules to view/edit.</div>`;
+    html+=`<div class="section-label">Current quotas</div><div class="card">`;
     players.forEach(p=>{
       const last=(p.history||[]).slice(-1)[0];
       const adj=last?(last.adj>0?`+${last.adj}`:last.adj<0?`${last.adj}`:'±0'):'—';
       const adjCls=last&&last.adj>0?'adj-up':last&&last.adj<0?'adj-down':'adj-same';
-      html+=`<div class="quota-row"><div class="avatar">${p.initials}</div><div class="quota-info"><div class="quota-name">${p.name}</div><div class="quota-sub">HCP ${p.hcp} · ${(p.history||[]).length} rounds${last?' · Last: '+last.scored+' pts':''}</div></div><div class="quota-right"><div class="quota-target">${p.quota}</div><div class="quota-adj ${adjCls}">Last: ${adj}</div></div></div>`;
+      const quota9=p.quota9||Math.round((p.quota||18)/2);
+      html+=`<div class="quota-row">
+        <div class="avatar">${p.initials}</div>
+        <div class="quota-info">
+          <div class="quota-name">${p.name}</div>
+          <div class="quota-sub">18H: ${p.quota} · 9H: ${quota9} · ${(p.history||[]).length} rounds played</div>
+        </div>
+        <div class="quota-right">
+          <div class="quota-target">${p.quota}</div>
+          <div class="quota-adj ${adjCls}">Last: ${adj}</div>
+        </div>
+      </div>`;
     });
     html+=`</div>`;
+
+    // Per-player quota history
+    html+=`<div class="section-label">Round-by-round history</div>`;
+    players.forEach(p=>{
+      const history=(p.history||[]).slice(-8).reverse();
+      if(!history.length) return;
+      html+=`<div style="font-size:13px;font-weight:600;margin:10px 0 6px;">${p.name}</div>`;
+      html+=`<div class="card" style="margin-bottom:10px;">`;
+      history.forEach(h=>{
+        const diff=h.diff>=0?`+${h.diff}`:h.diff;
+        const adjStr=h.adj>0?`+${h.adj}`:h.adj<0?`${h.adj}`:'±0';
+        const adjCol=h.adj>0?'var(--green)':h.adj<0?'var(--red)':'var(--text-3)';
+        const is9=h.holes==='front9'||h.holes==='back9';
+        html+=`<div class="balance-row">
+          <span class="balance-label">${h.date} · ${is9?'9H':'18H'}</span>
+          <span style="font-size:12px;">${h.scored}pts (${diff}) → <span style="color:${adjCol};font-weight:600;">${adjStr}</span> → quota ${h.quota+(h.adj||0)}</span>
+        </div>`;
+      });
+      html+=`</div>`;
+    });
+
     body.innerHTML=html;
   },
 
@@ -489,10 +593,69 @@ const Quota = {
     const body=document.getElementById('quota-admin-body');
     const rules=await DB.getQuotaRules();
     const players=await DB.getPlayers();
+
     const stepper=(key,label,sub)=>`<div class="toggle-row"><div><div class="toggle-label">${label}</div><div class="toggle-sub">${sub}</div></div><div class="stepper"><button class="step-btn" onclick="Quota.adjRule('${key}',-1)">−</button><span class="step-val" id="rule-${key}">${rules[key]}</span><button class="step-btn" onclick="Quota.adjRule('${key}',1)">+</button></div></div>`;
-    let html=`<div class="section-label">Adjustment rules</div><div class="card card-pad">${stepper('upThresh','Beat quota by','Pts over to trigger increase')}${stepper('upAmt','Increase by','Pts added per threshold')}${stepper('dnThresh','Miss quota by','Pts under to trigger decrease')}${stepper('dnAmt','Decrease by','Pts removed per threshold')}${stepper('maxUp','Max increase/round','Cap on quota rising')}${stepper('maxDn','Max decrease/round','Cap on quota falling')}</div>`;
+
+    let html = `<div class="section-label">18-hole quota rules</div>
+    <div class="card card-pad" style="margin-bottom:12px;">
+      ${stepper('upThresh','Beat quota by','Pts over quota to trigger increase')}
+      ${stepper('upAmt','Increase by','Pts added per threshold exceeded')}
+      ${stepper('dnThresh','Miss quota by','Pts under quota to trigger decrease')}
+      ${stepper('dnAmt','Decrease by','Pts removed per threshold exceeded')}
+      ${stepper('maxUp','Max increase/round','Cap on quota rising per round')}
+      ${stepper('maxDn','Max decrease/round','Cap on quota falling per round')}
+    </div>
+
+    <div class="section-label">9-hole quota rules</div>
+    <div class="note" style="margin-bottom:10px;">Same structure as 18H but applied to 9-hole rounds independently.</div>
+    <div class="card card-pad" style="margin-bottom:12px;">
+      ${stepper('upThresh9','Beat quota by','Pts over quota to trigger increase')}
+      ${stepper('upAmt9','Increase by','Pts added per threshold exceeded')}
+      ${stepper('dnThresh9','Miss quota by','Pts under quota to trigger decrease')}
+      ${stepper('dnAmt9','Decrease by','Pts removed per threshold exceeded')}
+      ${stepper('maxUp9','Max increase/round','Cap on quota rising per round')}
+      ${stepper('maxDn9','Max decrease/round','Cap on quota falling per round')}
+    </div>`;
+
+    // Example calculator
+    html += `<div class="section-label">Example — 18H rules</div><div class="card card-pad" style="margin-bottom:12px;">`;
+    [{quota:20,scored:23},{quota:20,scored:17},{quota:20,scored:20}].forEach(ex=>{
+      const diff=ex.scored-ex.quota;
+      let adj=0;
+      if(diff>=rules.upThresh) adj=Math.min(Math.floor(diff/rules.upThresh)*rules.upAmt,rules.maxUp);
+      else if(diff<=-rules.dnThresh) adj=-Math.min(Math.floor(Math.abs(diff)/rules.dnThresh)*rules.dnAmt,rules.maxDn);
+      const col=adj>0?'var(--green)':adj<0?'var(--red)':'var(--text-2)';
+      html+=`<div style="padding:7px 0;border-bottom:0.5px solid var(--border);font-size:12px;">
+        <span style="color:var(--text-2);">Quota ${ex.quota}, scored ${ex.scored} (${diff>=0?'+':''}${diff})</span>
+        <span style="color:${col};font-weight:600;float:right;">${adj>=0?'+':''}${adj} → new quota ${ex.quota+adj}</span>
+      </div>`;
+    });
+    html+=`</div>`;
+
+    html += `<div class="section-label">Example — 9H rules</div><div class="card card-pad" style="margin-bottom:12px;">`;
+    [{quota:10,scored:12},{quota:10,scored:8},{quota:10,scored:10}].forEach(ex=>{
+      const diff=ex.scored-ex.quota;
+      let adj=0;
+      if(diff>=rules.upThresh9) adj=Math.min(Math.floor(diff/rules.upThresh9)*rules.upAmt9,rules.maxUp9);
+      else if(diff<=-rules.dnThresh9) adj=-Math.min(Math.floor(Math.abs(diff)/rules.dnThresh9)*rules.dnAmt9,rules.maxDn9);
+      const col=adj>0?'var(--green)':adj<0?'var(--red)':'var(--text-2)';
+      html+=`<div style="padding:7px 0;border-bottom:0.5px solid var(--border);font-size:12px;">
+        <span style="color:var(--text-2);">9H quota ${ex.quota}, scored ${ex.scored} (${diff>=0?'+':''}${diff})</span>
+        <span style="color:${col};font-weight:600;float:right;">${adj>=0?'+':''}${adj} → new quota ${ex.quota+adj}</span>
+      </div>`;
+    });
+    html+=`</div>`;
+
     if(players.length){
-      html+=`<div class="section-label">Manual override</div><div class="card card-pad"><div class="form-group"><label class="form-label">Player</label><select class="form-input" id="override-player">${players.map(p=>`<option value="${p.id}">${p.name} (${p.quota})</option>`).join('')}</select></div><div class="form-group"><label class="form-label">New quota</label><input class="form-input" type="number" id="override-val" placeholder="e.g. 22" /></div><button class="primary-btn" onclick="Quota.applyOverride()">Apply override</button></div>`;
+      html+=`<div class="section-label">Manual override</div><div class="card card-pad">
+        <div class="form-group"><label class="form-label">Player</label>
+        <select class="form-input" id="override-player">${players.map(p=>`<option value="${p.id}">${p.name} (18H: ${p.quota} / 9H: ${p.quota9||Math.round((p.quota||18)/2)})</option>`).join('')}</select></div>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px;">
+          <div class="form-group" style="margin-bottom:0;"><label class="form-label">New 18H quota</label><input class="form-input" type="number" id="override-val" placeholder="e.g. 22" /></div>
+          <div class="form-group" style="margin-bottom:0;"><label class="form-label">New 9H quota</label><input class="form-input" type="number" id="override-val9" placeholder="e.g. 11" /></div>
+        </div>
+        <button class="primary-btn" onclick="Quota.applyOverride()">Apply override</button>
+      </div>`;
     }
     body.innerHTML=html;
   },
@@ -506,10 +669,14 @@ const Quota = {
   },
 
   async applyOverride() {
-    const id=document.getElementById('override-player').value;
-    const val=parseInt(document.getElementById('override-val').value);
-    if(!val)return;
-    await DB.updatePlayer(id,{quota:val});
+    const id  = document.getElementById('override-player').value;
+    const val = parseInt(document.getElementById('override-val').value);
+    const val9 = parseInt(document.getElementById('override-val9').value);
+    const updates = {};
+    if (val)  updates.quota  = val;
+    if (val9) updates.quota9 = val9;
+    if (!Object.keys(updates).length) return;
+    await DB.updatePlayer(id, updates);
     alert('Quota updated!');
     await this.renderAdmin();
   }
@@ -695,11 +862,34 @@ const App = {
   },
 
   async _renderHistory() {
-    const body=document.getElementById('history-body');
-    body.innerHTML=`<div class="empty-state"><div class="empty-title">Loading…</div></div>`;
-    const history=await DB.getHistory();
-    if(!history.length){body.innerHTML=`<div class="empty-state"><div class="empty-title">No rounds yet</div><div class="empty-sub">Complete a round to see it here.</div></div>`;return;}
-    body.innerHTML=history.map(r=>`<div class="history-card"><div class="history-course">${r.course||'Unknown'}</div><div class="history-date">${r.date||''} · ${r.players||0} players · $${r.pot||0}</div></div>`).join('');
+    const body = document.getElementById('history-body');
+    body.innerHTML = `<div class="empty-state"><div class="empty-title">Loading…</div></div>`;
+    try {
+      const history = await DB.getHistory();
+      if (!history.length) {
+        body.innerHTML = `<div class="empty-state"><div class="empty-title">No rounds yet</div><div class="empty-sub">Complete a round to see history here.</div></div>`;
+        return;
+      }
+      let html = '';
+      history.forEach(r => {
+        const games = (r.games||[]).join(' · ');
+        const holesLabel = r.holes==='front9'?'Front 9':r.holes==='back9'?'Back 9':'18 holes';
+        html += `<div class="history-card">
+          <div class="flex-between">
+            <div><div class="history-course">${r.roundName||r.course||'Round'}</div>
+            <div class="history-date">${r.date||''} · ${holesLabel} · ${r.playerCount||r.players?.length||0} players</div></div>
+            <div style="font-size:16px;font-weight:700;color:var(--green);">$${r.pot||0}</div>
+          </div>
+          <div class="history-chips">
+            ${games?`<span class="history-chip green">${games}</span>`:''}
+            ${r.course?`<span class="history-chip">${r.course}</span>`:''}
+          </div>
+        </div>`;
+      });
+      body.innerHTML = html;
+    } catch(e) {
+      body.innerHTML = `<div class="note amber">Error loading history: ${e.message}</div>`;
+    }
   },
 
   _renderSettings() {
