@@ -506,6 +506,15 @@ const Payouts = {
       await DB.updatePlayer(sp.id, updates);
     }
 
+    // Calculate and save winnings for each player
+    const winnings = this._calcWinnings();
+    for (let i = 0; i < (r.players||[]).length; i++) {
+      const rp = r.players[i];
+      if (winnings[i] > 0) {
+        await DB.addPlayerWinnings(rp.id, winnings[i], r.code||r.id, r.roundName||r.course?.name);
+      }
+    }
+
     // Save full round to history including player scores
     await DB.closeRound(r.code||r.id, {
       roundName: r.roundName,
@@ -514,11 +523,15 @@ const Payouts = {
       holes: r.holes,
       pot: r.pot,
       playerCount: r.players?.length,
-      players: r.players?.map(rp=>({
+      players: r.players?.map((rp,i)=>({
         id: rp.id, name: rp.name, initials: rp.initials,
-        hcp: rp.hcp, tee: rp.tee, group: rp.group
+        hcp: rp.hcp, tee: rp.tee, group: rp.group,
+        won: winnings[i]||0
       })),
-      games: Object.keys(r.games||{}).filter(k=>r.games[k].on)
+      games: Object.keys(r.games||{}).filter(k=>r.games[k].on),
+      scores: r.scores,
+      skinResults: r.skinResults,
+      ctpResults: r.ctpResults
     });
     Store.clearActiveRound();
     Scorecard.round = null;
@@ -751,10 +764,13 @@ const App = {
     else if(screen==='quota')         Quota.render();
     else if(screen==='quota-admin')   Quota.renderAdmin();
     else if(screen==='pending-rounds') this._renderPendingRounds();
-    else if(screen==='round-detail')   {} // rendered by _openRoundDetail
+    else if(screen==='round-detail')   {}
     else if(screen==='settings')      this._renderSettings();
     else if(screen==='join-round')    this._renderJoinRound();
     else if(screen==='claim-profile') this._renderClaimProfile();
+    else if(screen==='season')        this._renderSeason();
+    else if(screen==='season-admin')  this._renderSeasonAdmin();
+    else if(screen==='history')       this._renderHistory();
   },
 
   async _renderPendingRounds() {
@@ -861,9 +877,188 @@ const App = {
     this._renderPendingRounds();
   },
 
+  async _renderSeason() {
+    const body = document.getElementById('season-body');
+    body.innerHTML = `<div class="empty-state"><div class="empty-title">Loading…</div></div>`;
+    const isAdmin = Auth.isAdmin();
+    // Show admin button
+    const adminBtn = document.getElementById('season-admin-btn');
+    if (adminBtn) adminBtn.style.display = isAdmin ? 'block' : 'none';
+
+    try {
+      const [winnings, players] = await Promise.all([DB.getSeasonWinnings(), DB.getPlayers()]);
+      const myPlayerId = Auth.playerProfile?.playerId;
+
+      if (isAdmin) {
+        // Admin sees full leaderboard
+        const ranked = players.map(p => ({
+          p, total: winnings[p.id]?.total || 0,
+          rounds: winnings[p.id]?.rounds || []
+        })).sort((a,b) => b.total - a.total);
+
+        let html = `<div class="section-label">Season leaderboard</div><div class="card">`;
+        ranked.forEach(({p, total, rounds}, rank) => {
+          html += `<div class="player-row" style="cursor:pointer;" onclick="App._showPlayerWinnings('${p.id}')">
+            <div class="lb-rank${rank===0?' first':''}" style="min-width:36px;">${rank+1}</div>
+            <div class="avatar">${p.initials}</div>
+            <div class="player-info">
+              <div class="player-name">${p.name}</div>
+              <div class="player-meta">${rounds.length} round${rounds.length!==1?'s':''} · tap for detail</div>
+            </div>
+            <div style="font-size:18px;font-weight:700;color:var(--green);">$${total.toFixed(2)}</div>
+          </div>`;
+        });
+        html += `</div>`;
+
+        // Season total
+        const seasonTotal = ranked.reduce((a,r)=>a+r.total, 0);
+        html += `<div class="card card-pad" style="margin-top:4px;">
+          <div class="balance-row" style="border-bottom:none;">
+            <span class="balance-label">Total distributed this season</span>
+            <span style="font-weight:700;">$${seasonTotal.toFixed(2)}</span>
+          </div>
+        </div>`;
+        body.innerHTML = html;
+      } else {
+        // Player only sees their own total
+        const myWinnings = winnings[myPlayerId] || {total:0, rounds:[]};
+        const myPlayer = players.find(p=>p.id===myPlayerId);
+        let html = `<div style="text-align:center;padding:24px 0 16px;">
+          <div style="font-size:14px;color:var(--text-2);margin-bottom:8px;">Your season winnings</div>
+          <div style="font-size:52px;font-weight:700;color:var(--green);">$${myWinnings.total.toFixed(2)}</div>
+          <div style="font-size:13px;color:var(--text-2);margin-top:8px;">${myWinnings.rounds.length} round${myWinnings.rounds.length!==1?'s':''} played</div>
+        </div>`;
+        if (myWinnings.rounds.length) {
+          html += `<div class="section-label">Round breakdown</div><div class="card">`;
+          [...myWinnings.rounds].reverse().forEach(r => {
+            const col = r.amount >= 0 ? 'var(--green)' : 'var(--red)';
+            html += `<div class="balance-row">
+              <span class="balance-label">${r.date} · ${r.roundName||'Round'}</span>
+              <span style="font-weight:600;color:${col};">$${r.amount.toFixed(2)}</span>
+            </div>`;
+          });
+          html += `</div>`;
+        }
+        body.innerHTML = html;
+      }
+    } catch(e) {
+      body.innerHTML = `<div class="note amber">Error loading season data: ${e.message}</div>`;
+    }
+  },
+
+  _showPlayerWinnings(playerId) {
+    // Show modal with player's round-by-round breakdown
+    DB.getSeasonWinnings().then(winnings => {
+      DB.getPlayers().then(players => {
+        const p = players.find(pl=>pl.id===playerId);
+        const pw = winnings[playerId] || {total:0, rounds:[]};
+        let html = `<div style="font-size:17px;font-weight:600;margin-bottom:12px;">${p?.name} — $${pw.total.toFixed(2)}</div>`;
+        if (pw.rounds.length) {
+          html += pw.rounds.map(r => {
+            const col = r.amount >= 0 ? 'var(--green)' : 'var(--red)';
+            return `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid var(--border);font-size:13px;">
+              <span style="color:var(--text-2);">${r.date} · ${r.roundName||'Round'}</span>
+              <span style="font-weight:600;color:${col};">$${r.amount.toFixed(2)}</span>
+            </div>`;
+          }).reverse().join('');
+        } else {
+          html += `<div style="color:var(--text-3);font-size:13px;">No winnings recorded yet.</div>`;
+        }
+        const modal = document.createElement('div');
+        modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px;';
+        modal.innerHTML = `<div style="background:white;border-radius:20px;padding:24px;width:100%;max-width:360px;max-height:80vh;overflow-y:auto;">
+          ${html}
+          <button onclick="this.closest('.modal-overlay').remove()" style="margin-top:16px;width:100%;padding:11px;border-radius:var(--radius-sm);border:0.5px solid var(--border-2);background:none;font-size:13px;cursor:pointer;">Close</button>
+        </div>`;
+        modal.className = 'modal-overlay';
+        modal.onclick = e => { if(e.target===modal) modal.remove(); };
+        document.body.appendChild(modal);
+      });
+    });
+  },
+
+  async _renderSeasonAdmin() {
+    const body = document.getElementById('season-admin-body');
+    body.innerHTML = `<div class="empty-state"><div class="empty-title">Loading…</div></div>`;
+    const [winnings, players] = await Promise.all([DB.getSeasonWinnings(), DB.getPlayers()]);
+    const today = new Date().toISOString().split('T')[0];
+
+    let html = `<div class="section-label">Reset season</div>
+    <div class="card card-pad" style="margin-bottom:12px;">
+      <div class="form-group"><label class="form-label">Reset date (for archive label)</label>
+        <input class="form-input" type="date" id="season-reset-date" value="${today}" />
+      </div>
+      <button class="primary-btn" style="background:var(--red);margin-bottom:8px;" onclick="App._resetSeason()">Reset season now — archive &amp; clear all</button>
+      <div class="note" style="margin-bottom:0;">This archives the current season and resets everyone to $0. Cannot be undone.</div>
+    </div>`;
+
+    // Manual adjustments
+    html += `<div class="section-label">Manual adjustment</div>
+    <div class="card card-pad" style="margin-bottom:12px;">
+      <div class="form-group"><label class="form-label">Player</label>
+        <select class="form-input" id="adj-player">
+          ${players.map(p=>`<option value="${p.id}">${p.name} (currently $${(winnings[p.id]?.total||0).toFixed(2)})</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label class="form-label">Amount (use negative to deduct)</label>
+        <input class="form-input" type="number" id="adj-amount" placeholder="e.g. 25 or -10" step="0.01" />
+      </div>
+      <div class="form-group"><label class="form-label">Reason</label>
+        <input class="form-input" type="text" id="adj-reason" placeholder="e.g. corrected payout from round 3/15" />
+      </div>
+      <button class="primary-btn" onclick="App._applyWinningsAdjustment()">Apply adjustment</button>
+    </div>`;
+
+    // Past seasons archive
+    const archive = await DB.getSeasonArchive();
+    if (archive.length) {
+      html += `<div class="section-label">Past seasons</div>`;
+      archive.forEach(s => {
+        const total = Object.values(s.winnings||{}).reduce((a,w)=>a+(w.total||0),0);
+        html += `<div class="card card-pad" style="margin-bottom:8px;">
+          <div class="flex-between">
+            <div style="font-size:14px;font-weight:600;">Season ending ${s.resetDate}</div>
+            <div style="font-size:14px;font-weight:700;color:var(--green);">$${total.toFixed(2)}</div>
+          </div>
+        </div>`;
+      });
+    }
+
+    body.innerHTML = html;
+  },
+
+  async _resetSeason() {
+    const date = document.getElementById('season-reset-date')?.value || new Date().toLocaleDateString();
+    if (!confirm(`Reset season and archive as of ${date}? This cannot be undone.`)) return;
+    await DB.resetSeasonWinnings(date);
+    alert('Season reset! All winnings archived and cleared.');
+    this._renderSeasonAdmin();
+  },
+
+  async _applyWinningsAdjustment() {
+    const playerId = document.getElementById('adj-player').value;
+    const amount   = parseFloat(document.getElementById('adj-amount').value);
+    const reason   = document.getElementById('adj-reason').value.trim();
+    if (!amount || !reason) { alert('Please enter an amount and reason.'); return; }
+    await DB.adjustPlayerWinnings(playerId, amount, reason);
+    alert(`Adjustment of $${amount.toFixed(2)} applied.`);
+    this._renderSeasonAdmin();
+  },
+
+  // ── Round corrections ──
+  async _reopenRound(code) {
+    if (!confirm('Reopen this round for score corrections? It will be removed from history and reactivated.')) return;
+    await DB.reopenRound(code);
+    const round = await DB.getRound(code);
+    Store.saveActiveRound({...round, code});
+    await Scorecard.loadFromDB(code);
+    this.nav('scorecard');
+  },
+
   async _renderHistory() {
     const body = document.getElementById('history-body');
     body.innerHTML = `<div class="empty-state"><div class="empty-title">Loading…</div></div>`;
+    const isAdmin = Auth.isAdmin();
     try {
       const history = await DB.getHistory();
       if (!history.length) {
@@ -874,22 +1069,64 @@ const App = {
       history.forEach(r => {
         const games = (r.games||[]).join(' · ');
         const holesLabel = r.holes==='front9'?'Front 9':r.holes==='back9'?'Back 9':'18 holes';
+        const winners = (r.players||[]).filter(p=>p.won>0).map(p=>`${p.name.split(' ')[0]} $${(p.won||0).toFixed(2)}`).join(' · ');
         html += `<div class="history-card">
           <div class="flex-between">
-            <div><div class="history-course">${r.roundName||r.course||'Round'}</div>
-            <div class="history-date">${r.date||''} · ${holesLabel} · ${r.playerCount||r.players?.length||0} players</div></div>
+            <div>
+              <div class="history-course">${r.roundName||r.course||'Round'}</div>
+              <div class="history-date">${r.date||''} · ${holesLabel} · ${r.playerCount||r.players?.length||0} players</div>
+            </div>
             <div style="font-size:16px;font-weight:700;color:var(--green);">$${r.pot||0}</div>
           </div>
+          ${winners?`<div style="font-size:11px;color:var(--text-2);margin-top:4px;">Winners: ${winners}</div>`:''}
           <div class="history-chips">
             ${games?`<span class="history-chip green">${games}</span>`:''}
             ${r.course?`<span class="history-chip">${r.course}</span>`:''}
           </div>
+          ${isAdmin&&r.code?`<div style="display:flex;gap:8px;margin-top:10px;">
+            <button class="outline-btn" style="font-size:12px;padding:6px 10px;" onclick="App._reopenRound('${r.code}')">Reopen &amp; edit</button>
+            <button class="outline-btn" style="font-size:12px;padding:6px 10px;" onclick="App._showPayoutAdjust('${r.code}')">Adjust payouts</button>
+          </div>`:''}
         </div>`;
       });
       body.innerHTML = html;
     } catch(e) {
       body.innerHTML = `<div class="note amber">Error loading history: ${e.message}</div>`;
     }
+  },
+
+  async _showPayoutAdjust(roundCode) {
+    const players = await DB.getPlayers();
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px;';
+    modal.innerHTML = `<div style="background:white;border-radius:20px;padding:24px;width:100%;max-width:360px;">
+      <div style="font-size:17px;font-weight:600;margin-bottom:4px;">Adjust payout</div>
+      <div style="font-size:12px;color:var(--text-2);margin-bottom:16px;">Add or deduct from a player's season winnings.</div>
+      <div class="form-group"><label class="form-label">Player</label>
+        <select class="form-input" id="padj-player">${players.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select>
+      </div>
+      <div class="form-group"><label class="form-label">Amount (negative to deduct)</label>
+        <input class="form-input" type="number" id="padj-amount" placeholder="e.g. 15 or -5" step="0.01" />
+      </div>
+      <div class="form-group"><label class="form-label">Reason</label>
+        <input class="form-input" type="text" id="padj-reason" placeholder="e.g. corrected skins" />
+      </div>
+      <button class="primary-btn" onclick="App._submitPayoutAdjust()">Apply</button>
+      <button onclick="this.closest('.modal-overlay').remove()" style="width:100%;padding:11px;border-radius:var(--radius-sm);border:0.5px solid var(--border-2);background:none;font-size:13px;cursor:pointer;margin-top:8px;">Cancel</button>
+    </div>`;
+    modal.onclick = e => { if(e.target===modal) modal.remove(); };
+    document.body.appendChild(modal);
+  },
+
+  async _submitPayoutAdjust() {
+    const playerId = document.getElementById('padj-player').value;
+    const amount   = parseFloat(document.getElementById('padj-amount').value);
+    const reason   = document.getElementById('padj-reason').value.trim();
+    if (!amount || !reason) { alert('Please fill in all fields.'); return; }
+    await DB.adjustPlayerWinnings(playerId, amount, reason);
+    document.querySelector('.modal-overlay')?.remove();
+    alert('Adjustment applied to season winnings.');
   },
 
   _renderSettings() {

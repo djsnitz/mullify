@@ -101,6 +101,57 @@ const DB = {
     await this._ref(`rounds/${code}`).update(data);
   },
 
+  // ── Season winnings ──
+  async getSeasonWinnings() {
+    const snap = await this._ref('seasonWinnings').get();
+    return snap.exists() ? snap.val() : {};
+  },
+
+  async addPlayerWinnings(playerId, amount, roundCode, roundName) {
+    const ref = this._ref(`seasonWinnings/${playerId}`);
+    const snap = await ref.get();
+    const current = snap.exists() ? snap.val() : {total:0, rounds:[]};
+    current.total = (current.total||0) + amount;
+    current.rounds = [...(current.rounds||[]), {
+      roundCode, roundName, amount, date: new Date().toLocaleDateString(), ts: Date.now()
+    }].slice(-50);
+    await ref.set(current);
+  },
+
+  async adjustPlayerWinnings(playerId, adjustment, reason) {
+    const ref = this._ref(`seasonWinnings/${playerId}`);
+    const snap = await ref.get();
+    const current = snap.exists() ? snap.val() : {total:0, rounds:[]};
+    current.total = (current.total||0) + adjustment;
+    current.rounds = [...(current.rounds||[]), {
+      roundCode: 'adj', roundName: `Admin: ${reason}`,
+      amount: adjustment, date: new Date().toLocaleDateString(), ts: Date.now()
+    }].slice(-50);
+    await ref.set(current);
+  },
+
+  async resetSeasonWinnings(resetDate) {
+    const current = await this.getSeasonWinnings();
+    if (Object.keys(current).length) {
+      await this._ref(`seasonArchive/${Date.now()}`).set({
+        resetDate: resetDate || new Date().toLocaleDateString(),
+        resetAt: Date.now(),
+        winnings: current
+      });
+    }
+    await this._ref('seasonWinnings').remove();
+  },
+
+  async getSeasonArchive() {
+    const snap = await this._ref('seasonArchive').get();
+    return snap.exists() ? Object.values(snap.val()).sort((a,b)=>b.resetAt-a.resetAt) : [];
+  },
+
+  async reopenRound(code) {
+    await this._ref(`rounds/${code}/status`).set('active');
+    await this._ref(`history/${code}`).remove();
+  },
+
   async saveCTPResult(roundCode, hole, result) {
     await this._ref(`rounds/${roundCode}/ctpResults/${hole}`).set(result);
   },
