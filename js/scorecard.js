@@ -75,6 +75,8 @@ const Scorecard = {
 
     document.getElementById('sc-course-name').textContent = r.roundName || r.course?.name || 'Round';
     document.getElementById('sc-course-sub').textContent = `${r.course?.name||''} · ${players.length} players${this.isAdmin?' · Admin':''} · Code: ${this.roundCode||''}`;
+    const deleteBtn = document.getElementById('sc-delete-btn');
+    if (deleteBtn) deleteBtn.style.display = this.isAdmin ? 'block' : 'none';
     document.getElementById('sc-hole-display').textContent = `H${h+1}`;
 
     // Hole nav — use shared holeIndexes or first player's indexes
