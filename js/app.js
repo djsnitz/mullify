@@ -665,31 +665,42 @@ const Quota = {
     const rules=await DB.getQuotaRules();
     if(!players.length){body.innerHTML=`<div class="empty-state"><div class="empty-title">No players yet</div></div>`;return;}
 
-    let html=`<div class="note">18H &amp; 9H rules are set independently in Quota Rules. Tap Rules to view/edit.</div>`;
-    html+=`<div class="section-label">Current quotas</div><div class="card">`;
+    let html=`<div class="note">Quotas update automatically after each round closes. 9H and 18H quotas are tracked separately.</div>`;
+
+    // Summary cards — one per player showing both quotas
+    html+=`<div class="section-label">Current quotas</div>`;
     players.forEach(p=>{
-      const last=(p.history||[]).slice(-1)[0];
-      const adj=last?(last.adj>0?`+${last.adj}`:last.adj<0?`${last.adj}`:'±0'):'—';
-      const adjCls=last&&last.adj>0?'adj-up':last&&last.adj<0?'adj-down':'adj-same';
       const quota9=p.quota9||Math.round((p.quota||18)/2);
-      html+=`<div class="quota-row">
-        <div class="avatar">${p.initials}</div>
-        <div class="quota-info">
-          <div class="quota-name">${p.name}</div>
-          <div class="quota-sub">18H: ${p.quota} · 9H: ${quota9} · ${(p.history||[]).length} rounds played</div>
+      const last18=(p.history||[]).filter(h=>h.holes==='18').slice(-1)[0];
+      const last9=(p.history||[]).filter(h=>h.holes==='front9'||h.holes==='back9').slice(-1)[0];
+      const adj18=last18?(last18.adj>0?`+${last18.adj}`:last18.adj<0?`${last18.adj}`:'±0'):null;
+      const adj9=last9?(last9.adj>0?`+${last9.adj}`:last9.adj<0?`${last9.adj}`:'±0'):null;
+
+      html+=`<div class="card card-pad" style="margin-bottom:8px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+          <div class="avatar">${p.initials}</div>
+          <div><div style="font-size:14px;font-weight:600;">${p.name}</div>
+          <div style="font-size:11px;color:var(--text-2);">${(p.history||[]).length} rounds played · HCP ${p.hcp}</div></div>
         </div>
-        <div class="quota-right">
-          <div class="quota-target">${p.quota}</div>
-          <div class="quota-adj ${adjCls}">Last: ${adj}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div style="background:var(--bg-2);border-radius:var(--radius-sm);padding:10px;text-align:center;">
+            <div style="font-size:11px;color:var(--text-2);margin-bottom:4px;">18-hole quota</div>
+            <div style="font-size:26px;font-weight:700;color:var(--green-dark);">${p.quota||18}</div>
+            ${adj18?`<div style="font-size:11px;color:${last18.adj>0?'var(--green)':last18.adj<0?'var(--red)':'var(--text-3)'};">Last round: ${adj18}</div>`:`<div style="font-size:11px;color:var(--text-3);">No rounds yet</div>`}
+          </div>
+          <div style="background:var(--bg-2);border-radius:var(--radius-sm);padding:10px;text-align:center;">
+            <div style="font-size:11px;color:var(--text-2);margin-bottom:4px;">9-hole quota</div>
+            <div style="font-size:26px;font-weight:700;color:var(--blue);">${quota9}</div>
+            ${adj9?`<div style="font-size:11px;color:${last9.adj>0?'var(--green)':last9.adj<0?'var(--red)':'var(--text-3)'};">Last round: ${adj9}</div>`:`<div style="font-size:11px;color:var(--text-3);">No 9H rounds yet</div>`}
+          </div>
         </div>
       </div>`;
     });
-    html+=`</div>`;
 
-    // Per-player quota history
-    html+=`<div class="section-label">Round-by-round history</div>`;
+    // Per-player round-by-round history
+    html+=`<div class="section-label" style="margin-top:16px;">Round-by-round history</div>`;
     players.forEach(p=>{
-      const history=(p.history||[]).slice(-8).reverse();
+      const history=(p.history||[]).slice(-10).reverse();
       if(!history.length) return;
       html+=`<div style="font-size:13px;font-weight:600;margin:10px 0 6px;">${p.name}</div>`;
       html+=`<div class="card" style="margin-bottom:10px;">`;
@@ -698,9 +709,13 @@ const Quota = {
         const adjStr=h.adj>0?`+${h.adj}`:h.adj<0?`${h.adj}`:'±0';
         const adjCol=h.adj>0?'var(--green)':h.adj<0?'var(--red)':'var(--text-3)';
         const is9=h.holes==='front9'||h.holes==='back9';
+        const newQuota=h.quota+(h.adj||0);
         html+=`<div class="balance-row">
-          <span class="balance-label">${h.date} · ${is9?'9H':'18H'}</span>
-          <span style="font-size:12px;">${h.scored}pts (${diff}) → <span style="color:${adjCol};font-weight:600;">${adjStr}</span> → quota ${h.quota+(h.adj||0)}</span>
+          <div>
+            <div style="font-size:12px;font-weight:500;">${h.date||''} · <span style="color:${is9?'var(--blue)':'var(--green-dark)'};">${is9?'9H':'18H'}</span></div>
+            <div style="font-size:11px;color:var(--text-2);">Quota ${h.quota} · Scored ${h.scored}pts · ${diff} → new quota ${newQuota}</div>
+          </div>
+          <span style="font-size:14px;font-weight:700;color:${adjCol};">${adjStr}</span>
         </div>`;
       });
       html+=`</div>`;
