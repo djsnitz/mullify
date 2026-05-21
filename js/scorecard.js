@@ -210,7 +210,9 @@ const Scorecard = {
 
   _renderEntry(body) {
     const r = this.round;
-    const h = r.currentHole || 0;
+    const h = (this._viewingHole !== undefined && this._viewingHole !== null)
+      ? this._viewingHole
+      : (r.currentHole || 0);
     const players = r.players || [];
     const me = players.find(p => p.id === this.myPlayerId);
     const myGroup = me?.group || null;
@@ -388,7 +390,9 @@ const Scorecard = {
 
   async adj(playerId, playerIdx, delta) {
     const r = this.round;
-    const h = r.currentHole || 0;
+    const h = (this._viewingHole !== undefined && this._viewingHole !== null)
+      ? this._viewingHole
+      : (r.currentHole || 0);
     const p = r.players[playerIdx];
     const tee = p.tee || 'Blue';
     const hd  = r.course.tees[tee] || Object.values(r.course.tees)[0];
