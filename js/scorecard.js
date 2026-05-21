@@ -12,16 +12,21 @@ const Scorecard = {
   async loadFromDB(code) {
     this.roundCode = code.toUpperCase();
     this.view = 'entry';
+    this._viewingHole = null;
+    this._cardShowAll = true;
     const round = await DB.getRound(this.roundCode);
     if (!round) { alert('Round not found'); return; }
     this.round = round;
     this.isAdmin = Auth.currentUser?.uid === round.adminUid;
     this.myPlayerId = Auth.playerProfile?.playerId || null;
+    // Set viewing hole to player's next unscored hole
+    this._viewingHole = this._myNextHole();
     Store.saveActiveRound({...round, code: this.roundCode});
-    // Subscribe to live updates
     DB.onRoundChanged(this.roundCode, r => {
       this.round = r;
       Store.saveActiveRound({...r, code: this.roundCode});
+      // Only update viewing hole if not set yet
+      if (this._viewingHole === null) this._viewingHole = this._myNextHole();
       this.render();
     });
     this.render();
@@ -31,8 +36,11 @@ const Scorecard = {
     this.round = round;
     this.roundCode = round.code || round.id;
     this.view = 'entry';
+    this._viewingHole = null;
+    this._cardShowAll = true;
     this.isAdmin = Auth.currentUser?.uid === round.adminUid;
     this.myPlayerId = Auth.playerProfile?.playerId || null;
+    this._viewingHole = this._myNextHole();
     if (this.roundCode) {
       DB.onRoundChanged(this.roundCode, r => {
         this.round = r;
@@ -40,6 +48,18 @@ const Scorecard = {
       });
     }
     this.render();
+  },
+
+  // Find the first hole this player hasn't scored yet
+  _myNextHole() {
+    const r = this.round;
+    if (!r) return 0;
+    const holeIndexes = r.holeIndexes || Array.from({length:18},(_,i)=>i);
+    if (this.isAdmin) return r.currentHole || holeIndexes[0];
+    const myScores = r.scores?.[this.myPlayerId] || {};
+    // Find first unscored hole in order
+    const nextUnscored = holeIndexes.find(h => myScores[h] === undefined || myScores[h] === null);
+    return nextUnscored !== undefined ? nextUnscored : holeIndexes[holeIndexes.length - 1];
   },
 
   render() {
@@ -345,12 +365,15 @@ const Scorecard = {
       // Score keeper gets save & advance for their group's hole
       html += `<button class="primary-btn" onclick="Scorecard.saveMyGroupHole()" style="margin-top:12px;">Save scores & next hole →</button>`;
     } else {
-      // Regular player — just hole navigation arrows
+      // Regular player — hole nav arrows at bottom
+      const holeIndexes2 = r.holeIndexes || Array.from({length:18},(_,i)=>i);
+      const idx2 = holeIndexes2.indexOf(h);
+      const nextH = idx2 < holeIndexes2.length - 1 ? holeIndexes2[idx2 + 1] : null;
+      const prevH = idx2 > 0 ? holeIndexes2[idx2 - 1] : null;
       html += `<div style="display:flex;gap:8px;margin-top:12px;">
-        ${prevHole !== null ? `<button class="ghost-btn" style="flex:1;" onclick="Scorecard.viewHole(${prevHole})">← H${prevHole+1}</button>` : '<div style="flex:1;"></div>'}
-        ${nextHole !== null ? `<button class="ghost-btn" style="flex:1;" onclick="Scorecard.viewHole(${nextHole})">H${nextHole+1} →</button>` : '<div style="flex:1;"></div>'}
-      </div>
-      <div style="font-size:11px;color:var(--text-3);text-align:center;margin-top:6px;">Viewing only — admin or score keeper advances the round</div>`;
+        ${prevH !== null ? `<button class="ghost-btn" style="flex:1;" onclick="Scorecard.viewHole(${prevH})">← H${prevH+1}</button>` : '<div style="flex:1;"></div>'}
+        ${nextH !== null ? `<button class="primary-btn" style="flex:2;" onclick="Scorecard.viewHole(${nextH})">Next: H${nextH+1} →</button>` : `<button class="ghost-btn" style="flex:2;" disabled>All holes scored ✓</button>`}
+      </div>`;
     }
 
     body.innerHTML = html;
