@@ -213,8 +213,7 @@ const Scorecard = {
   _renderEntry(body) {
     const r = this.round;
     const h = (this._viewingHole !== undefined && this._viewingHole !== null)
-      ? this._viewingHole
-      : (r.currentHole || 0);
+      ? this._viewingHole : (r.currentHole || 0);
     const players = r.players || [];
     const me = players.find(p => p.id === this.myPlayerId);
     const myGroup = me?.group || null;
@@ -223,161 +222,160 @@ const Scorecard = {
     const iAmKeeper = myKeeper === this.myPlayerId;
     const keeperName = myKeeper ? players.find(p=>p.id===myKeeper)?.name?.split(' ')[0] : null;
 
-    // Score keeper status banner for my group
-    let keeperBanner = '';
-    if (!this.isAdmin && myGroup) {
-      if (iAmKeeper) {
-        keeperBanner = `<div style="background:var(--green-light);border:1px solid var(--green-mid);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:13px;color:var(--green-dark);font-weight:500;">✓ You are the score keeper for Group ${myGroup}</span>
-          <button onclick="Scorecard.volunteerAsKeeper()" style="font-size:11px;color:var(--red);background:none;border:none;cursor:pointer;">Step down</button>
-        </div>`;
-      } else if (myKeeper) {
-        keeperBanner = `<div style="background:var(--bg-2);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:10px;">
-          <span style="font-size:13px;color:var(--text-2);">Score keeper: <strong>${keeperName}</strong> · </span>
-          <button onclick="Scorecard.volunteerAsKeeper()" style="font-size:12px;color:var(--green);background:none;border:none;cursor:pointer;font-weight:500;">Take over</button>
-        </div>`;
-      } else {
-        keeperBanner = `<div style="background:var(--amber-light);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:13px;color:var(--amber);">Individual scoring · each player scores themselves</span>
-          <button onclick="Scorecard.volunteerAsKeeper()" style="font-size:12px;color:var(--green);background:none;border:none;cursor:pointer;font-weight:500;">Be score keeper</button>
-        </div>`;
-      }
-    }
-
-    // Sort: my group first, then other groups
-    const sortedPlayers = [...players].sort((a,b) => {
-      if (myGroup) {
-        if (a.group===myGroup && b.group!==myGroup) return -1;
-        if (b.group===myGroup && a.group!==myGroup) return 1;
-      }
-      return (a.group||1) - (b.group||1);
-    });
-
-    let html = keeperBanner;
-    let lastGroup = null;
-
-    sortedPlayers.forEach((p) => {
-      const i = players.findIndex(pl => pl.id === p.id);
-      if (i === -1) return;
-      // Group divider with keeper info
-      if (p.group && p.group !== lastGroup) {
-        const isMyGroup = p.group === myGroup;
-        const gk = scoreKeepers[p.group];
-        const gkName = gk ? players.find(pl=>pl.id===gk)?.name?.split(' ')[0] : null;
-        const keeperInfo = gkName ? ` · 📝 ${gkName}` : ' · Individual';
-        html += `<div style="font-size:11px;font-weight:600;color:${isMyGroup?'var(--green)':'var(--text-2)'};padding:8px 0 4px;text-transform:uppercase;letter-spacing:0.5px;">Group ${p.group}${isMyGroup?' · Your group':''}${keeperInfo}</div>`;
-        lastGroup = p.group;
-      }
-      const tee = p.tee || 'Blue';
-      const hd  = r.course.tees[tee] || Object.values(r.course.tees)[0];
-      const par = hd.par[h];
-      const hcpIdx = hd.hcp[h];
-      const strokes = this._strokes(p.hcp, hcpIdx);
-      const gross = r.scores?.[p.id]?.[h] ?? par;
-      const net = this._net(gross, p.hcp, hcpIdx);
-      const sl  = this._scoreLabel(net, par);
-      const totalPts = this._totalPts(i);
-      const grossTotal = Object.values(r.scores?.[p.id]||{}).reduce((a,b)=>a+(b||0),0);
-      const canEdit  = this._canEdit(i);
-      const isMe = p.id === this.myPlayerId;
-
-      html += `<div class="score-entry-card" style="${isMe?'border-color:var(--green);':''}">
-        <div class="sec-top">
-          <div class="avatar${isMe?'':''}">${p.initials}</div>
-          <div class="sec-info">
-            <div class="sec-name">${p.name}${isMe?' <span style="font-size:10px;color:var(--green);">(you)</span>':''}${p.group?' <span style="font-size:10px;background:var(--bg-2);color:var(--text-2);padding:1px 6px;border-radius:10px;">Grp '+p.group+'</span>':''}</div>
-            <div class="sec-meta">${tee} tee · HCP ${p.hcp} · ${strokes} stroke${strokes!==1?'s':''} H${h+1}${p.startHole&&p.startHole>1?' · Start H'+p.startHole:''}</div>
-          </div>
-          <div class="sec-pts" style="text-align:right;">
-            ${r.games?.stableford?.on ? `<div style="font-size:13px;font-weight:600;color:var(--green);">${totalPts} pts</div>` : ''}
-            <div style="font-size:11px;color:var(--text-2);">${grossTotal>0?'Total: '+grossTotal:''}</div>
-          </div>
-        </div>
-        <div class="sec-ctrl">
-          ${canEdit ? `<button class="sc-minus" onclick="Scorecard.adj('${p.id}',${i},-1)">−</button>` : `<div style="width:38px;"></div>`}
-          <div class="sc-display">
-            <div class="sc-num" id="score-${i}">${gross}</div>
-            <div class="sc-desc ${sl.cls}" id="desc-${i}">${sl.lbl} · net ${net}</div>
-          </div>
-          ${canEdit ? `<button class="sc-plus" onclick="Scorecard.adj('${p.id}',${i},1)">+</button>` : `<div style="width:38px;"></div>`}
-        </div>
-        ${!canEdit && !this.isAdmin ? `<div style="padding:6px 14px;font-size:11px;color:var(--text-3);text-align:center;">${scoreKeepers[p.group] ? `${keeperName} is entering scores` : 'You can view only'}</div>` : ''}
-      </div>`;
-    });
-
-    // Get par for current hole (use first player's tee as reference)
-    const firstP = players[0];
-    const firstTee2 = firstP?.tee || 'Blue';
-    const firstHd = r.course?.tees?.[firstTee2] || Object.values(r.course?.tees||{})[0];
-    const currentPar = firstHd?.par?.[h] || 4;
-
-    // CTP entry on par 3 holes
-    if (r.games?.ctp?.on && currentPar === 3) {
-      const existing = r.ctpResults?.[h] || {};
-      html += `<div class="card card-pad" style="margin-top:10px;border-color:var(--blue);">
-        <div style="font-size:13px;font-weight:600;color:var(--blue);margin-bottom:10px;">⛳ Closest to the pin — H${h+1} Par 3</div>
-        ${(r.players||[]).map((p,i) => {
-          const entry = existing[p.id] || {};
-          return `<div class="player-row">
-            <div class="avatar sm">${p.initials}</div>
-            <div class="player-info" style="flex:1;">
-              <div class="player-name" style="font-size:13px;">${p.name}</div>
-              <div style="display:flex;gap:6px;align-items:center;margin-top:4px;">
-                <input type="number" placeholder="Feet" min="0" value="${entry.feet||''}" id="ctp-feet-${i}" style="width:60px;padding:5px 8px;border-radius:6px;border:0.5px solid var(--border-2);font-size:13px;" />
-                <span style="font-size:13px;">ft</span>
-                <input type="number" placeholder="In" min="0" max="11" value="${entry.inches||''}" id="ctp-inches-${i}" style="width:50px;padding:5px 8px;border-radius:6px;border:0.5px solid var(--border-2);font-size:13px;" />
-                <span style="font-size:13px;">in</span>
-                <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--red);">
-                  <input type="checkbox" id="ctp-og-${i}" ${entry.og?'checked':''} /> OG
-                </label>
-              </div>
-            </div>
-          </div>`;
-        }).join('')}
-        <button class="primary-btn" style="margin-top:10px;" onclick="Scorecard.saveCTP(${h})">Save CTP results</button>
-      </div>`;
-    }
-
-    // Skin preview
-    if (r.games?.skins?.on) {
-      const netScores = players.map((p,i) => {
-        const tee=p.tee||'Blue'; const hd=r.course.tees[tee]||Object.values(r.course.tees)[0];
-        const gross=r.scores?.[p.id]?.[h]??hd.par[h];
-        return this._net(gross,p.hcp,hd.hcp[h]);
-      });
-      const min = Math.min(...netScores);
-      const winners = netScores.reduce((a,s,i)=>s===min?[...a,i]:a,[]);
-      html += `<div class="sec-skin-result ${winners.length===1?'skr-won':'skr-tied'}">${winners.length===1?`Skin: ${players[winners[0]].name} leads this hole`:'Tied — no skin will be awarded'}</div>`;
-    }
-
     const holeIndexes = r.holeIndexes || Array.from({length:18},(_,i)=>i);
     const currentIdx = holeIndexes.indexOf(h);
     const isLastHole = currentIdx === holeIndexes.length - 1;
-    const isFirstHole = currentIdx === 0;
     const nextHole = !isLastHole ? holeIndexes[currentIdx + 1] : null;
-    const prevHole = !isFirstHole ? holeIndexes[currentIdx - 1] : null;
+    const prevHole = currentIdx > 0 ? holeIndexes[currentIdx - 1] : null;
 
-    // Score keeper or admin — can save & advance the official current hole
-    const canSaveHole = this.isAdmin || (iAmKeeper && !isLastHole) || (iAmKeeper && isLastHole);
-    const myGroupPlayers = players.filter(p => p.group === myGroup);
-    const iAmKeeperForGroup = iAmKeeper && myGroup;
+    // Determine which players to show
+    let visiblePlayers;
+    if (this.isAdmin) {
+      // Admin sees everyone sorted by group
+      visiblePlayers = [...players].sort((a,b)=>(a.group||1)-(b.group||1));
+    } else if (iAmKeeper) {
+      // Score keeper sees their whole group
+      visiblePlayers = players.filter(p=>p.group===myGroup);
+    } else {
+      // Individual — only see yourself
+      visiblePlayers = me ? [me] : [];
+    }
+
+    // Score keeper banner
+    let bannerHtml = '';
+    if (!this.isAdmin && myGroup) {
+      if (iAmKeeper) {
+        bannerHtml = `<div style="background:var(--green-light);border:1px solid var(--green-mid);border-radius:var(--radius-sm);padding:8px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:12px;color:var(--green-dark);font-weight:500;">📝 Score keeper · Group ${myGroup}</span>
+          <button onclick="Scorecard.volunteerAsKeeper()" style="font-size:11px;color:var(--red);background:none;border:none;cursor:pointer;">Step down</button>
+        </div>`;
+      } else if (myKeeper) {
+        bannerHtml = `<div style="background:var(--bg-2);border-radius:var(--radius-sm);padding:8px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:12px;color:var(--text-2);">📝 ${keeperName} is keeping scores</span>
+          <button onclick="Scorecard.volunteerAsKeeper()" style="font-size:11px;color:var(--green);background:none;border:none;cursor:pointer;font-weight:500;">Take over</button>
+        </div>`;
+      } else {
+        bannerHtml = `<div style="background:var(--amber-light);border-radius:var(--radius-sm);padding:8px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:12px;color:var(--amber);">Individual scoring</span>
+          <button onclick="Scorecard.volunteerAsKeeper()" style="font-size:11px;color:var(--green);background:none;border:none;cursor:pointer;font-weight:500;">Be score keeper</button>
+        </div>`;
+      }
+    }
+
+    // Hole info header
+    const firstTee = players[0]?.tee||'Blue';
+    const hd = r.course?.tees?.[firstTee]||Object.values(r.course?.tees||{})[0];
+    const holePar = hd?.par?.[h]||4;
+    const holeHcp = hd?.hcp?.[h]||1;
+
+    let html = bannerHtml;
+
+    // Style D card — single card with all visible players
+    html += `<div style="background:var(--surface);border-radius:var(--radius);border:0.5px solid var(--border);overflow:hidden;">`;
+
+    // Hole header bar
+    html += `<div style="background:var(--bg-2);padding:10px 14px;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-size:13px;font-weight:600;">Hole ${h+1}</span>
+      <span style="font-size:12px;color:var(--text-2);">Par ${holePar} · HCP ${holeHcp}</span>
+    </div>`;
+
+    // One row per visible player
+    visiblePlayers.forEach((p) => {
+      const i = players.findIndex(pl=>pl.id===p.id);
+      if (i===-1) return;
+      const ptee = p.tee||'Blue';
+      const phd = r.course.tees[ptee]||Object.values(r.course.tees)[0];
+      const par = phd.par[h];
+      const hcpIdx = phd.hcp[h];
+      const strokes = this._strokes(p.hcp, hcpIdx);
+      const gross = r.scores?.[p.id]?.[h] ?? par;
+      const net = this._net(gross, p.hcp, hcpIdx);
+      const sl = this._scoreLabel(net, par);
+      const canEdit = this._canEdit(i);
+      const isMe = p.id === this.myPlayerId;
+
+      // Score label color
+      const lblColors = {
+        eagle:'#7c3aed', birdie:'var(--green)', par:'var(--text-2)',
+        bogey:'var(--amber)', double:'var(--red)', worse:'var(--red)'
+      };
+      const lblCol = lblColors[sl.cls] || 'var(--text-2)';
+
+      // Running total
+      const grossTotal = Object.values(r.scores?.[p.id]||{}).reduce((a,b)=>a+(b||0),0);
+
+      html += `<div style="padding:12px 14px;border-bottom:0.5px solid var(--border);display:flex;align-items:center;gap:10px;background:${isMe?'rgba(34,197,94,0.04)':'var(--surface)'};">
+        <div class="avatar" style="flex-shrink:0;">${p.initials}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:${isMe?'600':'400'};color:var(--text);">${p.first||p.name.split(' ')[0]}${isMe?' <span style="font-size:10px;color:var(--green);">· you</span>':''}</div>
+          <div style="font-size:11px;color:var(--text-2);margin-top:1px;">${strokes} stroke${strokes!==1?'s':''} · ${grossTotal>0?'Total '+grossTotal:'—'}</div>
+        </div>
+        ${canEdit ? `<button onclick="Scorecard.adj('${p.id}',${i},-1)" style="width:36px;height:36px;border-radius:50%;border:0.5px solid var(--border-2);background:var(--bg-2);font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text);flex-shrink:0;">−</button>` : ''}
+        <div style="text-align:center;min-width:44px;flex-shrink:0;">
+          <div style="font-size:28px;font-weight:600;line-height:1;color:var(--text);">${gross}</div>
+          <div style="font-size:10px;color:${lblCol};margin-top:2px;">${sl.lbl}</div>
+        </div>
+        ${canEdit ? `<button onclick="Scorecard.adj('${p.id}',${i},1)" style="width:36px;height:36px;border-radius:50%;border:0.5px solid var(--border-2);background:var(--bg-2);font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text);flex-shrink:0;">+</button>` : `<div style="width:36px;flex-shrink:0;"></div>`}
+      </div>`;
+    });
+
+    html += `</div>`;
+
+    // Skin preview
+    if (r.games?.skins?.on && players.length > 1) {
+      const netScores = players.map(p=>{
+        const ptee=p.tee||'Blue'; const phd=r.course.tees[ptee]||Object.values(r.course.tees)[0];
+        const gross=r.scores?.[p.id]?.[h]??phd.par[h];
+        return this._net(gross,p.hcp,phd.hcp[h]);
+      });
+      const min=Math.min(...netScores);
+      const winners=netScores.reduce((a,s,i)=>s===min?[...a,i]:a,[]);
+      html += `<div class="sec-skin-result ${winners.length===1?'skr-won':'skr-tied'}" style="margin-top:8px;">${winners.length===1?`🏆 ${players[winners[0]].name.split(' ')[0]} leads this hole`:'Tied — no skin'}</div>`;
+    }
+
+    // CTP on par 3
+    const currentPar = holePar;
+    if (r.games?.ctp?.on && currentPar === 3) {
+      const existing = r.ctpResults?.[h] || {};
+      html += `<div style="background:var(--surface);border-radius:var(--radius);border:1px solid var(--blue);padding:12px 14px;margin-top:8px;">
+        <div style="font-size:12px;font-weight:600;color:var(--blue);margin-bottom:10px;">⛳ Closest to pin · H${h+1}</div>
+        ${players.map((p,i)=>{
+          const entry=existing[p.id]||{};
+          return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <div class="avatar sm">${p.initials}</div>
+            <span style="font-size:12px;flex:1;">${p.first||p.name.split(' ')[0]}</span>
+            <input type="number" placeholder="ft" min="0" value="${entry.feet||''}" id="ctp-feet-${i}" style="width:50px;padding:4px 6px;border-radius:6px;border:0.5px solid var(--border-2);font-size:12px;" />
+            <input type="number" placeholder="in" min="0" max="11" value="${entry.inches||''}" id="ctp-inches-${i}" style="width:44px;padding:4px 6px;border-radius:6px;border:0.5px solid var(--border-2);font-size:12px;" />
+            <label style="font-size:11px;color:var(--red);display:flex;align-items:center;gap:3px;"><input type="checkbox" id="ctp-og-${i}" ${entry.og?'checked':''} />OG</label>
+          </div>`;
+        }).join('')}
+        <button class="primary-btn" style="margin-top:6px;" onclick="Scorecard.saveCTP(${h})">Save CTP</button>
+      </div>`;
+    }
+
+    // Navigation buttons
+    html += `<div style="display:flex;gap:8px;margin-top:12px;">`;
+    if (prevHole !== null) {
+      html += `<button class="ghost-btn" style="flex:1;" onclick="Scorecard.viewHole(${prevHole})">← Hole ${prevHole+1}</button>`;
+    } else {
+      html += `<div style="flex:1;"></div>`;
+    }
 
     if (this.isAdmin) {
-      html += `<button class="primary-btn" onclick="Scorecard.saveHole()" style="margin-top:12px;">Save hole ${h+1}${!isLastHole?' & next →':' — finish round'}</button>`;
-      html += `<button class="ghost-btn" style="margin-top:6px;border-color:var(--red);color:var(--red);" onclick="Scorecard.confirmEndRound()">End round &amp; go to payouts</button>`;
+      html += `<button class="primary-btn" style="flex:2;" onclick="Scorecard.saveHole()">${!isLastHole?'Save · Hole '+(nextHole+1)+' →':'Save · Finish round'}</button>`;
     } else if (iAmKeeper) {
-      // Score keeper gets save & advance for their group's hole
-      html += `<button class="primary-btn" onclick="Scorecard.saveMyGroupHole()" style="margin-top:12px;">Save scores & next hole →</button>`;
+      html += `<button class="primary-btn" style="flex:2;" onclick="Scorecard.saveMyGroupHole()">${!isLastHole?'Save · Hole '+(nextHole+1)+' →':'Done ✓'}</button>`;
     } else {
-      // Regular player — hole nav arrows at bottom
-      const holeIndexes2 = r.holeIndexes || Array.from({length:18},(_,i)=>i);
-      const idx2 = holeIndexes2.indexOf(h);
-      const nextH = idx2 < holeIndexes2.length - 1 ? holeIndexes2[idx2 + 1] : null;
-      const prevH = idx2 > 0 ? holeIndexes2[idx2 - 1] : null;
-      html += `<div style="display:flex;gap:8px;margin-top:12px;">
-        ${prevH !== null ? `<button class="ghost-btn" style="flex:1;" onclick="Scorecard.viewHole(${prevH})">← H${prevH+1}</button>` : '<div style="flex:1;"></div>'}
-        ${nextH !== null ? `<button class="primary-btn" style="flex:2;" onclick="Scorecard.viewHole(${nextH})">Next: H${nextH+1} →</button>` : `<button class="ghost-btn" style="flex:2;" disabled>All holes scored ✓</button>`}
-      </div>`;
+      if (nextHole !== null) {
+        html += `<button class="primary-btn" style="flex:2;" onclick="Scorecard.viewHole(${nextHole})">Hole ${nextHole+1} →</button>`;
+      } else {
+        html += `<button class="ghost-btn" style="flex:2;" disabled>All holes ✓</button>`;
+      }
+    }
+    html += `</div>`;
+
+    if (this.isAdmin) {
+      html += `<button class="ghost-btn" style="margin-top:6px;border-color:var(--red);color:var(--red);width:100%;" onclick="Scorecard.confirmEndRound()">End round &amp; payouts</button>`;
     }
 
     body.innerHTML = html;
