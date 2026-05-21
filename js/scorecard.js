@@ -80,6 +80,7 @@ const Scorecard = {
     else if (this.view==='leaderboard') this._renderLeaderboard(body);
     else if (this.view==='skins')       this._renderSkins(body);
     else if (this.view==='groups')      this._renderGroups(body);
+    else if (this.view==='card')        this._renderCard(body);
     else                                this._renderQuota(body);
   },
 
@@ -145,8 +146,40 @@ const Scorecard = {
     const me = this.round?.players?.find(p => p.id === this.myPlayerId);
     const target = this.round?.players?.[playerIdx];
     if (!me || !target) return false;
-    // Same group can enter scores for each other
-    return me.group === target.group;
+    if (me.group !== target.group) return false; // different group — no
+
+    // Check score keeper mode for this group
+    const groupKeeper = (this.round?.scoreKeepers||{})[me.group];
+    if (!groupKeeper) return me.id === target.id; // no keeper set — individual only
+    return groupKeeper === this.myPlayerId; // keeper can score whole group
+  },
+
+  // Is this player the score keeper for their group?
+  _isKeeper(playerId) {
+    const p = this.round?.players?.find(pl=>pl.id===playerId);
+    if (!p) return false;
+    return (this.round?.scoreKeepers||{})[p.group] === playerId;
+  },
+
+  async volunteerAsKeeper() {
+    const me = this.round?.players?.find(p=>p.id===this.myPlayerId);
+    if (!me) return;
+    const keepers = {...(this.round?.scoreKeepers||{})};
+    if (keepers[me.group] === this.myPlayerId) {
+      // Step down
+      delete keepers[me.group];
+    } else {
+      // Volunteer
+      keepers[me.group] = this.myPlayerId;
+    }
+    await DB.updateRound(this.roundCode, {scoreKeepers: keepers});
+  },
+
+  async adminSetKeeper(group, playerId) {
+    const keepers = {...(this.round?.scoreKeepers||{})};
+    if (playerId === 'none') delete keepers[group];
+    else keepers[group] = playerId;
+    await DB.updateRound(this.roundCode, {scoreKeepers: keepers});
   },
 
   _renderEntry(body) {
@@ -155,6 +188,31 @@ const Scorecard = {
     const players = r.players || [];
     const me = players.find(p => p.id === this.myPlayerId);
     const myGroup = me?.group || null;
+    const scoreKeepers = r.scoreKeepers || {};
+    const myKeeper = myGroup ? scoreKeepers[myGroup] : null;
+    const iAmKeeper = myKeeper === this.myPlayerId;
+    const keeperName = myKeeper ? players.find(p=>p.id===myKeeper)?.name?.split(' ')[0] : null;
+
+    // Score keeper status banner for my group
+    let keeperBanner = '';
+    if (!this.isAdmin && myGroup) {
+      if (iAmKeeper) {
+        keeperBanner = `<div style="background:var(--green-light);border:1px solid var(--green-mid);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:13px;color:var(--green-dark);font-weight:500;">✓ You are the score keeper for Group ${myGroup}</span>
+          <button onclick="Scorecard.volunteerAsKeeper()" style="font-size:11px;color:var(--red);background:none;border:none;cursor:pointer;">Step down</button>
+        </div>`;
+      } else if (myKeeper) {
+        keeperBanner = `<div style="background:var(--bg-2);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:10px;">
+          <span style="font-size:13px;color:var(--text-2);">Score keeper: <strong>${keeperName}</strong> · </span>
+          <button onclick="Scorecard.volunteerAsKeeper()" style="font-size:12px;color:var(--green);background:none;border:none;cursor:pointer;font-weight:500;">Take over</button>
+        </div>`;
+      } else {
+        keeperBanner = `<div style="background:var(--amber-light);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:13px;color:var(--amber);">Individual scoring · each player scores themselves</span>
+          <button onclick="Scorecard.volunteerAsKeeper()" style="font-size:12px;color:var(--green);background:none;border:none;cursor:pointer;font-weight:500;">Be score keeper</button>
+        </div>`;
+      }
+    }
 
     // Sort: my group first, then other groups
     const sortedPlayers = [...players].sort((a,b) => {
@@ -165,16 +223,19 @@ const Scorecard = {
       return (a.group||1) - (b.group||1);
     });
 
-    let html = '';
+    let html = keeperBanner;
     let lastGroup = null;
 
     sortedPlayers.forEach((p) => {
-      const i = players.findIndex(pl => pl.id === p.id); // use id not reference
-      if (i === -1) return; // skip if not found
-      // Group divider
+      const i = players.findIndex(pl => pl.id === p.id);
+      if (i === -1) return;
+      // Group divider with keeper info
       if (p.group && p.group !== lastGroup) {
         const isMyGroup = p.group === myGroup;
-        html += `<div style="font-size:11px;font-weight:600;color:${isMyGroup?'var(--green)':'var(--text-2)'};padding:8px 0 4px;text-transform:uppercase;letter-spacing:0.5px;">Group ${p.group}${isMyGroup?' · Your group':''}</div>`;
+        const gk = scoreKeepers[p.group];
+        const gkName = gk ? players.find(pl=>pl.id===gk)?.name?.split(' ')[0] : null;
+        const keeperInfo = gkName ? ` · 📝 ${gkName}` : ' · Individual';
+        html += `<div style="font-size:11px;font-weight:600;color:${isMyGroup?'var(--green)':'var(--text-2)'};padding:8px 0 4px;text-transform:uppercase;letter-spacing:0.5px;">Group ${p.group}${isMyGroup?' · Your group':''}${keeperInfo}</div>`;
         lastGroup = p.group;
       }
       const tee = p.tee || 'Blue';
@@ -210,7 +271,7 @@ const Scorecard = {
           </div>
           ${canEdit ? `<button class="sc-plus" onclick="Scorecard.adj('${p.id}',${i},1)">+</button>` : `<div style="width:38px;"></div>`}
         </div>
-        ${!canEdit && !this.isAdmin ? `<div style="padding:6px 14px;font-size:11px;color:var(--text-3);text-align:center;">Score entered by admin</div>` : ''}
+        ${!canEdit && !this.isAdmin ? `<div style="padding:6px 14px;font-size:11px;color:var(--text-3);text-align:center;">${scoreKeepers[p.group] ? `${keeperName} is entering scores` : 'You can view only'}</div>` : ''}
       </div>`;
     });
 
@@ -462,39 +523,174 @@ const Scorecard = {
     body.innerHTML = html;
   },
 
+  _renderCard(body) {
+    const r = this.round;
+    const players = r.players||[];
+    const holeIndexes = r.holeIndexes||Array.from({length:18},(_,i)=>i);
+    const tee = players[0]?.tee||'Blue';
+    const hd = r.course?.tees?.[tee]||Object.values(r.course?.tees||{})[0];
+    const me = players.find(p=>p.id===this.myPlayerId);
+    const myGroup = me?.group||null;
+
+    // Group filter toggle
+    const showAll = this._cardShowAll !== false;
+    const filteredPlayers = showAll ? players : players.filter(p=>p.group===myGroup);
+
+    let html = '';
+
+    // Toggle if multiple groups
+    const groups = [...new Set(players.map(p=>p.group||1))];
+    if (groups.length > 1) {
+      html += `<div style="display:flex;gap:8px;margin-bottom:10px;">
+        <button onclick="Scorecard._cardShowAll=true;Scorecard._renderCard(document.getElementById('sc-body'))" style="flex:1;padding:8px;border-radius:var(--radius-sm);border:${showAll?'2px solid var(--green)':'0.5px solid var(--border-2)'};background:${showAll?'var(--green-light)':'none'};font-size:13px;font-weight:${showAll?'600':'400'};color:${showAll?'var(--green-dark)':'var(--text)'};cursor:pointer;">All players</button>
+        <button onclick="Scorecard._cardShowAll=false;Scorecard._renderCard(document.getElementById('sc-body'))" style="flex:1;padding:8px;border-radius:var(--radius-sm);border:${!showAll?'2px solid var(--green)':'0.5px solid var(--border-2)'};background:${!showAll?'var(--green-light)':'none'};font-size:13px;font-weight:${!showAll?'600':'400'};color:${!showAll?'var(--green-dark)':'var(--text)'};cursor:pointer;">My group (${myGroup})</button>
+      </div>`;
+    }
+
+    // Split into front/back
+    const front = holeIndexes.slice(0, Math.min(9, holeIndexes.length));
+    const back  = holeIndexes.length > 9 ? holeIndexes.slice(9) : [];
+
+    const buildSection = (holes, label) => {
+      const parTotal = holes.reduce((a,h)=>a+(hd?.par?.[h]||4),0);
+      let t = `<div style="overflow-x:auto;margin-bottom:12px;">
+        <table style="width:100%;border-collapse:collapse;font-size:11px;white-space:nowrap;min-width:${holes.length*32+120}px;">
+          <thead>
+            <tr style="background:var(--bg-2);">
+              <th style="padding:5px 8px;text-align:left;border-bottom:0.5px solid var(--border);min-width:80px;">Player</th>
+              ${holes.map(h=>`<th style="padding:5px 4px;text-align:center;border-bottom:0.5px solid var(--border);width:28px;">${h+1}</th>`).join('')}
+              <th style="padding:5px 8px;text-align:center;border-bottom:0.5px solid var(--border);">${label}</th>
+            </tr>
+            <tr style="background:var(--bg-2);">
+              <th style="padding:3px 8px;text-align:left;color:var(--text-2);font-weight:400;font-size:10px;">Par</th>
+              ${holes.map(h=>{const p=hd?.par?.[h]||4;return`<th style="padding:3px 4px;text-align:center;color:${p===3?'var(--blue)':p===5?'var(--green)':'var(--text-2)'};font-weight:400;font-size:10px;">${p}</th>`;}).join('')}
+              <th style="padding:3px 8px;text-align:center;color:var(--text-2);font-weight:400;font-size:10px;">${parTotal}</th>
+            </tr>
+          </thead>
+          <tbody>`;
+
+      filteredPlayers.forEach((p,pi) => {
+        const rowTotal = holes.reduce((a,h)=>a+(r.scores?.[p.id]?.[h]||0),0);
+        const rowPar   = holes.reduce((a,h)=>a+(hd?.par?.[h]||4),0);
+        const vsPar    = rowTotal > 0 ? rowTotal - rowPar : null;
+        const isMe     = p.id === this.myPlayerId;
+        const bg = isMe?'rgba(34,197,94,0.06)':pi%2===0?'var(--surface)':'var(--bg-2)';
+        t += `<tr style="background:${bg};">
+          <td style="padding:5px 8px;border-bottom:0.5px solid var(--border);font-weight:${isMe?'600':'400'};font-size:11px;">${p.name.split(' ')[0]} ${p.name.split(' ')[1]?.[0]||''}.</td>
+          ${holes.map(h=>{
+            const score=r.scores?.[p.id]?.[h];
+            const par=hd?.par?.[h]||4;
+            const d=score?score-par:null;
+            let bg2='';
+            if(d!==null){if(d<=-2)bg2='background:#7c3aed;color:white;border-radius:50%;';else if(d===-1)bg2='background:var(--green);color:white;border-radius:50%;';else if(d===1)bg2='color:var(--amber);font-weight:600;';else if(d>=2)bg2='color:var(--red);font-weight:600;';}
+            return `<td style="padding:2px 2px;text-align:center;border-bottom:0.5px solid var(--border);"><span style="${bg2}padding:2px 3px;font-size:11px;">${score||'—'}</span></td>`;
+          }).join('')}
+          <td style="padding:5px 8px;text-align:center;border-bottom:0.5px solid var(--border);font-weight:700;font-size:12px;">
+            ${rowTotal>0?rowTotal:'—'}${vsPar!==null?`<span style="font-size:9px;display:block;color:${vsPar<0?'var(--green)':vsPar>0?'var(--red)':'var(--text-2)'};">${vsPar===0?'E':vsPar>0?'+'+vsPar:vsPar}</span>`:''}
+          </td>
+        </tr>`;
+      });
+      t += `</tbody></table></div>`;
+      return t;
+    };
+
+    if (front.length) html += buildSection(front, front.length<9?'Tot':'Out');
+    if (back.length)  html += buildSection(back, 'In');
+
+    // Totals row if 18 holes
+    if (back.length && filteredPlayers.length > 1) {
+      const frontPar = front.reduce((a,h)=>a+(hd?.par?.[h]||4),0);
+      const backPar  = back.reduce((a,h)=>a+(hd?.par?.[h]||4),0);
+      html += `<div class="card" style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <tr style="background:var(--bg-2);">
+            <th style="padding:8px;text-align:left;">Player</th>
+            <th style="padding:8px;text-align:center;">Out</th>
+            <th style="padding:8px;text-align:center;">In</th>
+            <th style="padding:8px;text-align:center;">Total</th>
+            <th style="padding:8px;text-align:center;">+/−</th>
+          </tr>`;
+      filteredPlayers.forEach((p,pi)=>{
+        const out=front.reduce((a,h)=>a+(r.scores?.[p.id]?.[h]||0),0);
+        const inp=back.reduce((a,h)=>a+(r.scores?.[p.id]?.[h]||0),0);
+        const tot=out+inp; const par=frontPar+backPar;
+        const vs=tot>0?tot-par:null;
+        const isMe=p.id===this.myPlayerId;
+        html+=`<tr style="background:${isMe?'rgba(34,197,94,0.06)':pi%2===0?'var(--surface)':'var(--bg-2)'};">
+          <td style="padding:7px 8px;font-weight:${isMe?'600':'400'};">${p.name.split(' ')[0]}</td>
+          <td style="padding:7px 8px;text-align:center;">${out||'—'}</td>
+          <td style="padding:7px 8px;text-align:center;">${inp||'—'}</td>
+          <td style="padding:7px 8px;text-align:center;font-weight:700;">${tot||'—'}</td>
+          <td style="padding:7px 8px;text-align:center;font-weight:600;color:${vs!==null&&vs<0?'var(--green)':vs!==null&&vs>0?'var(--red)':'var(--text-2)'};">${vs===null?'—':vs===0?'E':vs>0?'+'+vs:vs}</td>
+        </tr>`;
+      });
+      html+=`</table></div>`;
+    }
+
+    // Legend
+    html += `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:10px;padding:0 2px;">
+      <span style="background:#7c3aed;color:white;border-radius:50%;padding:1px 4px;">E</span> Eagle+
+      <span style="background:var(--green);color:white;border-radius:50%;padding:1px 4px;">B</span> Birdie
+      <span style="color:var(--amber);font-weight:600;">Par+1</span> Bogey
+      <span style="color:var(--red);font-weight:600;">Par+2</span> Double+
+    </div>`;
+
+    body.innerHTML = html;
+  },
+
+  _cardShowAll: true,
+
   _renderGroups(body) {
     const r = this.round;
     const players = r.players || [];
     const groups = r.groups || [{name:'Group 1', startHole:1}];
     const isAdmin = this.isAdmin;
+    const scoreKeepers = r.scoreKeepers || {};
 
-    let html = `<div class="section-label">Group assignments${isAdmin?' <span style="font-size:11px;color:var(--text-3);">· Admin can move players</span>':''}</div>`;
+    let html = `<div class="section-label">Group assignments${isAdmin?' <span style="font-size:11px;color:var(--text-3);">· Admin can move players &amp; assign score keepers</span>':''}</div>`;
 
     groups.forEach((g, gi) => {
-      const groupPlayers = players.filter(p => p.group === gi+1);
+      const groupNum = gi + 1;
+      const groupPlayers = players.filter(p => p.group === groupNum);
+      const keeperId = scoreKeepers[groupNum];
+      const keeperName = keeperId ? players.find(p=>p.id===keeperId)?.name?.split(' ')[0] : null;
+
       html += `<div class="card" style="margin-bottom:10px;">
-        <div class="card-section">Group ${gi+1}${r.shotgun?' · Start hole '+g.startHole:''}</div>
-        ${groupPlayers.map((p, pi) => {
-          const globalIdx = players.indexOf(p);
-          return `<div class="player-row">
-            <div class="avatar">${p.initials}</div>
-            <div class="player-info">
-              <div class="player-name">${p.name}</div>
-              <div class="player-meta">HCP ${p.hcp} · ${p.tee} tee${p.startHole?' · Start H'+p.startHole:''}</div>
-            </div>
-            ${isAdmin ? `<select style="font-size:12px;padding:4px 6px;border-radius:6px;border:0.5px solid var(--border-2);font-family:var(--font-sans);" onchange="Scorecard.moveToGroup(${globalIdx},this.value)">
-              ${groups.map((_,i)=>`<option value="${i+1}" ${p.group===i+1?'selected':''}>Grp ${i+1}</option>`).join('')}
-            </select>` : ''}
-          </div>`;
-        }).join('')}
-        ${groupPlayers.length === 0 ? '<div style="padding:12px 0;font-size:13px;color:var(--text-3);">No players in this group</div>' : ''}
-      </div>`;
+        <div class="card-section" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>Group ${groupNum}${r.shotgun?' · H'+(g.startHole||1):''}</span>
+          <span style="font-size:11px;color:${keeperName?'var(--green)':'var(--text-3)'};">${keeperName?'📝 '+keeperName:'Individual'}</span>
+        </div>`;
+
+      if (isAdmin) {
+        html += `<div style="padding:8px 0 6px;border-bottom:0.5px solid var(--border);">
+          <label style="font-size:11px;color:var(--text-2);">Score keeper:</label>
+          <select style="margin-left:8px;font-size:12px;padding:3px 6px;border-radius:6px;border:0.5px solid var(--border-2);" onchange="Scorecard.adminSetKeeper(${groupNum},this.value)">
+            <option value="none" ${!keeperId?'selected':''}>Individual (no keeper)</option>
+            ${groupPlayers.map(p=>`<option value="${p.id}" ${p.id===keeperId?'selected':''}>${p.name.split(' ')[0]}</option>`).join('')}
+          </select>
+        </div>`;
+      }
+
+      groupPlayers.forEach((p) => {
+        const globalIdx = players.findIndex(pl=>pl.id===p.id);
+        const isKeeper = p.id === keeperId;
+        html += `<div class="player-row">
+          <div class="avatar">${p.initials}</div>
+          <div class="player-info">
+            <div class="player-name">${p.name}${isKeeper?' <span style="font-size:10px;background:var(--green-light);color:var(--green-dark);padding:1px 6px;border-radius:8px;">Score keeper</span>':''}</div>
+            <div class="player-meta">HCP ${p.hcp} · ${p.tee} tee${p.startHole?' · Start H'+p.startHole:''}</div>
+          </div>
+          ${isAdmin ? `<select style="font-size:12px;padding:4px 6px;border-radius:6px;border:0.5px solid var(--border-2);" onchange="Scorecard.moveToGroup(${globalIdx},this.value)">
+            ${groups.map((_,i)=>`<option value="${i+1}" ${p.group===i+1?'selected':''}>Grp ${i+1}</option>`).join('')}
+          </select>` : ''}
+        </div>`;
+      });
+
+      if (groupPlayers.length === 0) html += '<div style="padding:12px 0;font-size:13px;color:var(--text-3);">No players in this group</div>';
+      html += `</div>`;
     });
 
-    if (!isAdmin) {
-      html += `<div class="note">Only the admin can move players between groups.</div>`;
-    }
-
+    if (!isAdmin) html += `<div class="note">Tap "Be score keeper" on the Score entry tab to volunteer for your group.</div>`;
     body.innerHTML = html;
   },
 
