@@ -623,7 +623,8 @@ const Payouts = {
       });
     });
 
-    await DB.closeRound(r.code||r.id, {
+    if (!r.skipHistory) {
+      await DB.closeRound(r.code||r.id, {
       roundName: r.roundName||'',
       course: r.course?.name||'',
       date: r.date||'',
@@ -640,6 +641,8 @@ const Payouts = {
       skinResults: r.skinResults||{},
       ctpResults: r.ctpResults||{}
     });
+    } // end if (!r.skipHistory)
+
     Store.clearActiveRound();
     Scorecard.round = null;
     this.round = null;
