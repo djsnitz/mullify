@@ -6,6 +6,8 @@ const Scorecard = {
   isAdmin: false,
   myPlayerId: null,
   overrideMode: false,
+  _viewingHole: null,
+  _cardShowAll: true,
 
   async loadFromDB(code) {
     this.roundCode = code.toUpperCase();
@@ -43,7 +45,10 @@ const Scorecard = {
   render() {
     if (!this.round) return;
     const r = this.round;
-    const h = r.currentHole || 0;
+    // Use viewing hole if set, otherwise use official current hole
+    const h = (this._viewingHole !== undefined && this._viewingHole !== null)
+      ? this._viewingHole
+      : (r.currentHole || 0);
     const players = r.players || [];
     const firstTee = players[0]?.tee || 'Blue';
     const holeData = r.course?.tees?.[firstTee] || Object.values(r.course?.tees||{})[0];
@@ -58,7 +63,8 @@ const Scorecard = {
       const done = r.players.some(p => r.scores?.[p.id]?.[i] !== undefined);
       const skin = (r.skinResults||{})[i];
       const skinWon = skin && !skin.tied;
-      return `<button class="hole-pill${i===h?' active':''}${done?' done':''}${skinWon?' skin-won':''}" onclick="Scorecard.goHole(${i})">${i+1}</button>`;
+      const isActive = i === h;
+      return `<button class="hole-pill${isActive?' active':''}${done?' done':''}${skinWon?' skin-won':''}" onclick="Scorecard.viewHole(${i})">${i+1}</button>`;
     }).join('');
 
     // Hole info
@@ -320,12 +326,41 @@ const Scorecard = {
       html += `<div class="sec-skin-result ${winners.length===1?'skr-won':'skr-tied'}">${winners.length===1?`Skin: ${players[winners[0]].name} leads this hole`:'Tied — no skin will be awarded'}</div>`;
     }
 
+    const holeIndexes = r.holeIndexes || Array.from({length:18},(_,i)=>i);
+    const currentIdx = holeIndexes.indexOf(h);
+    const isLastHole = currentIdx === holeIndexes.length - 1;
+    const isFirstHole = currentIdx === 0;
+    const nextHole = !isLastHole ? holeIndexes[currentIdx + 1] : null;
+    const prevHole = !isFirstHole ? holeIndexes[currentIdx - 1] : null;
+
+    // Score keeper or admin — can save & advance the official current hole
+    const canSaveHole = this.isAdmin || (iAmKeeper && !isLastHole) || (iAmKeeper && isLastHole);
+    const myGroupPlayers = players.filter(p => p.group === myGroup);
+    const iAmKeeperForGroup = iAmKeeper && myGroup;
+
     if (this.isAdmin) {
-      html += `<button class="primary-btn" onclick="Scorecard.saveHole()" style="margin-top:12px;">Save hole ${h+1}${h<17?' & next →':' — finish round'}</button>`;
+      html += `<button class="primary-btn" onclick="Scorecard.saveHole()" style="margin-top:12px;">Save hole ${h+1}${!isLastHole?' & next →':' — finish round'}</button>`;
       html += `<button class="ghost-btn" style="margin-top:6px;border-color:var(--red);color:var(--red);" onclick="Scorecard.confirmEndRound()">End round &amp; go to payouts</button>`;
+    } else if (iAmKeeper) {
+      // Score keeper gets save & advance for their group's hole
+      html += `<button class="primary-btn" onclick="Scorecard.saveMyGroupHole()" style="margin-top:12px;">Save scores & next hole →</button>`;
+    } else {
+      // Regular player — just hole navigation arrows
+      html += `<div style="display:flex;gap:8px;margin-top:12px;">
+        ${prevHole !== null ? `<button class="ghost-btn" style="flex:1;" onclick="Scorecard.viewHole(${prevHole})">← H${prevHole+1}</button>` : '<div style="flex:1;"></div>'}
+        ${nextHole !== null ? `<button class="ghost-btn" style="flex:1;" onclick="Scorecard.viewHole(${nextHole})">H${nextHole+1} →</button>` : '<div style="flex:1;"></div>'}
+      </div>
+      <div style="font-size:11px;color:var(--text-3);text-align:center;margin-top:6px;">Viewing only — admin or score keeper advances the round</div>`;
     }
 
     body.innerHTML = html;
+  },
+
+  // Navigate to a different hole for viewing (doesn't change official currentHole in DB)
+  viewHole(holeIdx) {
+    if (!this.round) return;
+    this._viewingHole = holeIdx;
+    this.renderView();
   },
 
   async adj(playerId, playerIdx, delta) {
@@ -360,6 +395,34 @@ const Scorecard = {
     } catch {
       Store.addPendingWrite({type:'score', roundCode:this.roundCode, playerId, hole:h, value:newScore});
     }
+  },
+
+  // Score keeper saves their group's scores and advances their local view
+  async saveMyGroupHole() {
+    const r = this.round;
+    const h = (this._viewingHole !== undefined && this._viewingHole !== null) ? this._viewingHole : (r.currentHole || 0);
+    const holeIndexes = r.holeIndexes || Array.from({length:18},(_,i)=>i);
+    const currentIdx = holeIndexes.indexOf(h);
+    const me = r.players?.find(p=>p.id===this.myPlayerId);
+    const myGroup = me?.group;
+
+    // Save par for any unscored player in my group
+    const groupPlayers = (r.players||[]).filter(p=>p.group===myGroup);
+    for (const p of groupPlayers) {
+      const tee = p.tee||'Blue';
+      const hd = r.course.tees[tee]||Object.values(r.course.tees)[0];
+      if (r.scores?.[p.id]?.[h] === undefined || r.scores?.[p.id]?.[h] === null) {
+        await DB.saveScore(this.roundCode, p.id, h, hd.par[h]||4);
+      }
+    }
+
+    // Move viewing hole to next
+    if (currentIdx < holeIndexes.length - 1) {
+      this._viewingHole = holeIndexes[currentIdx + 1];
+    } else {
+      alert('Your group has finished! Waiting for admin to close the round.');
+    }
+    this.renderView();
   },
 
   async saveHole() {
@@ -637,8 +700,6 @@ const Scorecard = {
 
     body.innerHTML = html;
   },
-
-  _cardShowAll: true,
 
   _renderGroups(body) {
     const r = this.round;
