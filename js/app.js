@@ -402,14 +402,34 @@ const Payouts = {
       const sfPot=r.games.stableford.buyin*players.length;
       const places=r.games.stableford.places||2;
       const placeAmounts=this._calcPlaceSplits(sfPot,places);
-      const pts=players.map((_,i)=>Scorecard._totalPts?Scorecard._totalPts(i):0);
-      const ranked=pts.map((p,i)=>({i,p,player:players[i]})).sort((a,b)=>b.p-a.p);
+      const sfpts=r.games.stableford.pts||{eagle:4,birdie:3,par:2,bogey:1,double:0,worse:0};
+      const ranked=players.map((p)=>{
+        const tee=p.tee||'Blue';
+        const hd=r.course?.tees?.[tee]||Object.values(r.course?.tees||{})[0];
+        const holeIndexes=r.holeIndexes||Array.from({length:18},(_,i)=>i);
+        let pts=0;
+        holeIndexes.forEach(h=>{
+          const gross=r.scores?.[p.id]?.[h];
+          if(gross===undefined||gross===null) return;
+          const hcpIdx=hd?.hcp?.[h]||1;
+          let strokes=0;
+          if(r.useHandicap!==false){if(p.hcp>=hcpIdx)strokes++;if(p.hcp>=18+hcpIdx)strokes++;}
+          const net=gross-strokes; const par=hd?.par?.[h]||4; const d=net-par;
+          if(d<=-2)pts+=sfpts.eagle||4;
+          else if(d===-1)pts+=sfpts.birdie||3;
+          else if(d===0)pts+=sfpts.par||2;
+          else if(d===1)pts+=sfpts.bogey||1;
+          else if(d===2)pts+=sfpts.double||0;
+          else pts+=sfpts.worse||0;
+        });
+        return {p, pts};
+      }).sort((a,b)=>b.pts-a.pts);
       const labels=['1st','2nd','3rd','4th','5th'];
       html+=`<div class="section-label">Stableford — ${this._fmt(sfPot)} pot · ${places} places paid</div><div class="card">`;
       let pos=0;
       while(pos<ranked.length){
-        const curPts=ranked[pos].p;
-        const tied=ranked.filter(r=>r.p===curPts);
+        const curPts=ranked[pos].pts;
+        const tied=ranked.filter(r=>r.pts===curPts);
         let moneyStr='—'; let posLabel=labels[pos]||`${pos+1}th`;
         if(pos<places){
           let totalMoney=0;
@@ -419,7 +439,7 @@ const Payouts = {
           if(tied.length>1) posLabel+=` (${tied.length}-way tie)`;
         }
         tied.forEach(item=>{
-          html+=`<div class="payout-row"><div style="font-size:12px;font-weight:600;color:${pos===0?'var(--green)':'var(--text-3)'};min-width:50px;">${posLabel}</div><div class="avatar">${item.player.initials}</div><div class="payout-info"><div class="payout-name">${item.player.name}</div><div class="payout-detail">${item.p} pts</div></div><div class="payout-amt ${pos<places?'amt-win':'amt-zero'}">${moneyStr}</div></div>`;
+          html+=`<div class="payout-row"><div style="font-size:12px;font-weight:600;color:${pos===0?'var(--green)':'var(--text-3)'};min-width:50px;">${posLabel}</div><div class="avatar">${item.p.initials}</div><div class="payout-info"><div class="payout-name">${item.p.name}</div><div class="payout-detail">${item.pts} pts</div></div><div class="payout-amt ${pos<places?'amt-win':'amt-zero'}">${moneyStr}</div></div>`;
         });
         pos+=tied.length;
       }
@@ -432,10 +452,29 @@ const Payouts = {
       const places=r.games.quota.places||2;
       const placeAmounts=this._calcPlaceSplits(quotaPot,places);
       const is9hole=r.holes==='front9'||r.holes==='back9';
-      const diffs=players.map((p,i)=>{
+      const qpts=r.games.quota.pts||r.games.stableford?.pts||{eagle:5,birdie:4,par:3,bogey:2,double:1,worse:0};
+      const diffs=players.map((p)=>{
         const pq=is9hole?(p.quota9||Math.round((p.quota||18)/2)):(p.quota||18);
-        const pts=Scorecard._totalPts?Scorecard._totalPts(i):0;
-        return {diff:pts-pq, pts, pq, player:p, i};
+        // Calculate pts directly from scores
+        const tee=p.tee||'Blue';
+        const hd=r.course?.tees?.[tee]||Object.values(r.course?.tees||{})[0];
+        const holeIndexes=r.holeIndexes||Array.from({length:18},(_,i)=>i);
+        let pts=0;
+        holeIndexes.forEach(h=>{
+          const gross=r.scores?.[p.id]?.[h];
+          if(gross===undefined||gross===null) return;
+          const hcpIdx=hd?.hcp?.[h]||1;
+          let strokes=0;
+          if(r.useHandicap!==false){if(p.hcp>=hcpIdx)strokes++;if(p.hcp>=18+hcpIdx)strokes++;}
+          const net=gross-strokes; const par=hd?.par?.[h]||4; const d=net-par;
+          if(d<=-2)pts+=qpts.eagle||5;
+          else if(d===-1)pts+=qpts.birdie||4;
+          else if(d===0)pts+=qpts.par||3;
+          else if(d===1)pts+=qpts.bogey||2;
+          else if(d===2)pts+=qpts.double||1;
+          else pts+=qpts.worse||0;
+        });
+        return {diff:pts-pq, pts, pq, player:p};
       }).sort((a,b)=>b.diff-a.diff);
       const labels=['1st','2nd','3rd','4th','5th'];
       html+=`<div class="section-label">Quota — ${this._fmt(quotaPot)} pot · ${places} places paid</div><div class="card">`;
@@ -453,7 +492,7 @@ const Payouts = {
         }
         tied.forEach(item=>{
           const diffStr=item.diff>=0?`+${item.diff}`:item.diff;
-          html+=`<div class="payout-row"><div style="font-size:12px;font-weight:600;color:${pos===0?'var(--green)':'var(--text-3)'};min-width:50px;">${posLabel}</div><div class="avatar">${item.player.initials}</div><div class="payout-info"><div class="payout-name">${item.player.name}</div><div class="payout-detail">${item.pts} pts · quota ${item.pq} · ${diffStr} vs quota</div></div><div class="payout-amt ${pos<places?'amt-win':'amt-zero'}">${moneyStr}</div></div>`;
+          html+=`<div class="payout-row"><div style="font-size:12px;font-weight:600;color:${pos===0?'var(--green)':'var(--text-3)'};min-width:50px;">${posLabel}</div><div class="avatar">${item.player.initials}</div><div class="payout-info"><div class="payout-name">${item.player.name}</div><div class="payout-detail">Scored ${item.pts} · quota ${item.pq} · <strong>${diffStr} vs quota</strong></div></div><div class="payout-amt ${pos<places?'amt-win':'amt-zero'}">${moneyStr}</div></div>`;
         });
         pos+=tied.length;
       }
@@ -1141,7 +1180,8 @@ const App = {
       history.forEach(r => {
         const games = (r.games||[]).join(' · ');
         const holesLabel = r.holes==='front9'?'Front 9':r.holes==='back9'?'Back 9':'18 holes';
-        const winners = (r.players||[]).filter(p=>p.won>0).map(p=>`${p.name.split(' ')[0]} $${(p.won||0).toFixed(2)}`).join(' · ');
+        const playerArr = Array.isArray(r.players) ? r.players : Object.values(r.players||{});
+        const winners = playerArr.filter(p=>p.won>0).map(p=>`${p.name.split(' ')[0]} $${(p.won||0).toFixed(2)}`).join(' · ');
         html += `<div class="history-card">
           <div class="flex-between">
             <div>
