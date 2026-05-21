@@ -821,16 +821,52 @@ const Scorecard = {
 
   async confirmEndRound() {
     const r = this.round;
-    const h = r.currentHole || 0;
     const holeIndexes = r.holeIndexes || Array.from({length:18},(_,i)=>i);
     const holesPlayed = holeIndexes.filter(i => r.players.some(p => r.scores?.[p.id]?.[i] !== undefined)).length;
-    const msg = holesPlayed === 0
-      ? 'No scores entered yet. End the round anyway?'
-      : `End round after ${holesPlayed} hole${holesPlayed!==1?'s':''}? Payouts will be calculated on scores entered so far.`;
-    if (!confirm(msg)) return;
+
+    // Show options modal
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px;';
+    modal.innerHTML = `<div style="background:white;border-radius:20px;padding:24px;width:100%;max-width:340px;">
+      <div style="font-size:17px;font-weight:600;margin-bottom:6px;">End round</div>
+      <div style="font-size:13px;color:var(--text-2);margin-bottom:20px;">${holesPlayed} hole${holesPlayed!==1?'s':''} scored. How would you like to end?</div>
+      <button class="primary-btn" style="margin-bottom:10px;" onclick="Scorecard._endRoundWithSave();this.closest('div[style]').remove();">
+        Save to history &amp; go to payouts
+      </button>
+      <button class="ghost-btn" style="margin-bottom:10px;color:var(--amber);border-color:var(--amber);" onclick="Scorecard._endRoundNoHistory();this.closest('div[style]').remove();">
+        End &amp; go to payouts (no history saved)
+      </button>
+      <button class="ghost-btn" style="color:var(--red);border-color:var(--red);margin-bottom:10px;" onclick="Scorecard._deleteRound();this.closest('div[style]').remove();">
+        Delete round entirely
+      </button>
+      <button class="ghost-btn" onclick="this.closest('div[style]').remove();">Cancel</button>
+    </div>`;
+    modal.onclick = e => { if (e.target === modal) modal.remove(); };
+    document.body.appendChild(modal);
+  },
+
+  async _endRoundWithSave() {
+    const r = this.round;
     await DB.updateRound(this.roundCode, {status:'complete'});
     Payouts.buildFromRound({...r, code:this.roundCode});
     App.nav('payouts');
+  },
+
+  async _endRoundNoHistory() {
+    const r = this.round;
+    await DB.updateRound(this.roundCode, {status:'complete'});
+    // Build payouts but skip history save in closeRound
+    Payouts.buildFromRound({...r, code:this.roundCode, skipHistory:true});
+    App.nav('payouts');
+  },
+
+  async _deleteRound() {
+    if (!confirm('Delete this round completely? No scores or payouts will be saved.')) return;
+    await DB.deleteRound(this.roundCode);
+    Store.clearActiveRound();
+    this.round = null;
+    App.nav('home');
+    Home.render();
   },
 
   async moveToGroup(playerIdx, newGroup) {
