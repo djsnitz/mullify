@@ -8,6 +8,7 @@ const Scorecard = {
   overrideMode: false,
   _viewingHole: null,
   _cardShowAll: true,
+  _adminMyScoreOnly: false,
 
   async loadFromDB(code) {
     this.roundCode = code.toUpperCase();
@@ -230,20 +231,24 @@ const Scorecard = {
 
     // Determine which players to show
     let visiblePlayers;
-    if (this.isAdmin) {
-      // Admin sees everyone sorted by group
+    if (this.isAdmin && !this._adminMyScoreOnly) {
       visiblePlayers = [...players].sort((a,b)=>(a.group||1)-(b.group||1));
-    } else if (iAmKeeper) {
-      // Score keeper sees their whole group
+    } else if (iAmKeeper && !this._adminMyScoreOnly) {
       visiblePlayers = players.filter(p=>p.group===myGroup);
     } else {
-      // Individual — only see yourself
+      // Individual — only show yourself
       visiblePlayers = me ? [me] : [];
     }
 
-    // Score keeper banner
+    // Admin toggle banner
     let bannerHtml = '';
-    if (!this.isAdmin && myGroup) {
+    if (this.isAdmin) {
+      const isMyOnly = this._adminMyScoreOnly;
+      bannerHtml = `<div style="display:flex;gap:6px;margin-bottom:10px;">
+        <button onclick="Scorecard._adminMyScoreOnly=false;Scorecard.renderView();" style="flex:1;padding:8px;border-radius:var(--radius-sm);border:${!isMyOnly?'2px solid var(--green)':'0.5px solid var(--border-2)'};background:${!isMyOnly?'var(--green-light)':'none'};font-size:12px;font-weight:${!isMyOnly?'600':'400'};color:${!isMyOnly?'var(--green-dark)':'var(--text)'};cursor:pointer;">All players</button>
+        <button onclick="Scorecard._adminMyScoreOnly=true;Scorecard.renderView();" style="flex:1;padding:8px;border-radius:var(--radius-sm);border:${isMyOnly?'2px solid var(--green)':'0.5px solid var(--border-2)'};background:${isMyOnly?'var(--green-light)':'none'};font-size:12px;font-weight:${isMyOnly?'600':'400'};color:${isMyOnly?'var(--green-dark)':'var(--text)'};cursor:pointer;">My score only</button>
+      </div>`;
+    } else if (!this.isAdmin && myGroup) {
       if (iAmKeeper) {
         bannerHtml = `<div style="background:var(--green-light);border:1px solid var(--green-mid);border-radius:var(--radius-sm);padding:8px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
           <span style="font-size:12px;color:var(--green-dark);font-weight:500;">📝 Score keeper · Group ${myGroup}</span>
@@ -361,9 +366,9 @@ const Scorecard = {
       html += `<div style="flex:1;"></div>`;
     }
 
-    if (this.isAdmin) {
+    if (this.isAdmin && !this._adminMyScoreOnly) {
       html += `<button class="primary-btn" style="flex:2;" onclick="Scorecard.saveHole()">${!isLastHole?'Save · Hole '+(nextHole+1)+' →':'Save · Finish round'}</button>`;
-    } else if (iAmKeeper) {
+    } else if (iAmKeeper && !this._adminMyScoreOnly) {
       html += `<button class="primary-btn" style="flex:2;" onclick="Scorecard.saveMyGroupHole()">${!isLastHole?'Save · Hole '+(nextHole+1)+' →':'Done ✓'}</button>`;
     } else {
       if (nextHole !== null) {
