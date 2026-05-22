@@ -99,12 +99,41 @@ const Payouts = {
       }, 0);
     };
 
-    // ── Skins: exact decimals ──
+    // ── Skins: calculate from skinResults + recalculate any missing holes ──
     if (r.games?.skins?.on) {
       const skinPot = r.games.skins.buyin * players.length;
-      const won = Object.values(r.skinResults||{}).filter(s=>s&&!s.tied);
-      const perSkin = won.length>0 ? skinPot/won.length : 0;
-      won.forEach(s=>{ if(s.winner!==undefined) winnings[s.winner]+=perSkin; });
+      const holeIndexes = r.holeIndexes||Array.from({length:18},(_,i)=>i);
+      let totalSkins = 0;
+      const skinWinners = {}; // playerIdx -> count
+
+      holeIndexes.forEach(h => {
+        let res = (r.skinResults||{})[h];
+        // If no saved result but scores exist, calculate it now
+        if (!res) {
+          const allScored = players.every(p => r.scores?.[p.id]?.[h] !== undefined && r.scores?.[p.id]?.[h] !== null);
+          if (!allScored) return; // not everyone scored this hole yet
+          const nets = players.map(p => {
+            const tee=p.tee||'Blue'; const hd=r.course?.tees?.[tee]||Object.values(r.course?.tees||{})[0];
+            const gross=r.scores?.[p.id]?.[h]??hd?.par?.[h]??4;
+            const hcpIdx=hd?.hcp?.[h]||1;
+            let strokes=0;
+            if(r.useHandicap!==false){if(p.hcp>=hcpIdx)strokes++;if(p.hcp>=18+hcpIdx)strokes++;}
+            return gross-strokes;
+          });
+          const min=Math.min(...nets);
+          const winners=nets.reduce((a,s,i)=>s===min?[...a,i]:a,[]);
+          res = winners.length===1?{winner:winners[0],winnerId:players[winners[0]].id,tied:false}:{tied:true};
+        }
+        if (res && !res.tied && res.winner !== undefined) {
+          skinWinners[res.winner] = (skinWinners[res.winner]||0) + 1;
+          totalSkins++;
+        }
+      });
+
+      const perSkin = totalSkins > 0 ? skinPot / totalSkins : 0;
+      Object.entries(skinWinners).forEach(([idx, count]) => {
+        winnings[parseInt(idx)] += perSkin * count;
+      });
     }
 
     // ── Stableford: with tie splitting ──
