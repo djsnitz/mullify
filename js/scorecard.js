@@ -338,23 +338,28 @@ const Scorecard = {
       html += `<div class="sec-skin-result ${winners.length===1?'skr-won':'skr-tied'}" style="margin-top:8px;">${winners.length===1?`🏆 ${players[winners[0]].name.split(' ')[0]} leads this hole`:'Tied — no skin'}</div>`;
     }
 
-    // CTP on par 3
+    // CTP on par 3 — entry fields, saved automatically when hole is saved
     const currentPar = holePar;
     if (r.games?.ctp?.on && currentPar === 3) {
       const existing = r.ctpResults?.[h] || {};
+      const hasEntry = Object.keys(existing).some(k=>k!=='winnerId'&&k!=='winnerDistance');
       html += `<div style="background:var(--surface);border-radius:var(--radius);border:1px solid var(--blue);padding:12px 14px;margin-top:8px;">
-        <div style="font-size:12px;font-weight:600;color:var(--blue);margin-bottom:10px;">⛳ Closest to pin · H${h+1}</div>
-        ${players.map((p,i)=>{
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <div style="font-size:12px;font-weight:600;color:var(--blue);">⛳ Closest to pin · H${h+1}</div>
+          ${hasEntry?`<span style="font-size:10px;color:var(--green);">Saved ✓</span>`:'<span style="font-size:10px;color:var(--text-3);">Saved with hole</span>'}
+        </div>
+        ${visiblePlayers.map((p,i)=>{
+          const pi = players.findIndex(pl=>pl.id===p.id);
           const entry=existing[p.id]||{};
           return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
             <div class="avatar sm">${p.initials}</div>
             <span style="font-size:12px;flex:1;">${p.first||p.name.split(' ')[0]}</span>
-            <input type="number" placeholder="ft" min="0" value="${entry.feet||''}" id="ctp-feet-${i}" style="width:50px;padding:4px 6px;border-radius:6px;border:0.5px solid var(--border-2);font-size:12px;" />
-            <input type="number" placeholder="in" min="0" max="11" value="${entry.inches||''}" id="ctp-inches-${i}" style="width:44px;padding:4px 6px;border-radius:6px;border:0.5px solid var(--border-2);font-size:12px;" />
-            <label style="font-size:11px;color:var(--red);display:flex;align-items:center;gap:3px;"><input type="checkbox" id="ctp-og-${i}" ${entry.og?'checked':''} />OG</label>
+            <input type="number" placeholder="ft" min="0" value="${entry.feet||''}" id="ctp-feet-${pi}" style="width:50px;padding:4px 6px;border-radius:6px;border:0.5px solid var(--border-2);font-size:12px;" />
+            <input type="number" placeholder="in" min="0" max="11" value="${entry.inches||''}" id="ctp-inches-${pi}" style="width:44px;padding:4px 6px;border-radius:6px;border:0.5px solid var(--border-2);font-size:12px;" />
+            <label style="font-size:11px;color:var(--red);display:flex;align-items:center;gap:3px;"><input type="checkbox" id="ctp-og-${pi}" ${entry.og?'checked':''} />OG</label>
           </div>`;
         }).join('')}
-        <button class="primary-btn" style="margin-top:6px;" onclick="Scorecard.saveCTP(${h})">Save CTP</button>
+        <div style="font-size:10px;color:var(--text-3);margin-top:4px;">CTP is saved automatically when you save the hole</div>
       </div>`;
     }
 
@@ -483,6 +488,16 @@ const Scorecard = {
         if (!r.scores) r.scores = {};
         if (!r.scores[p.id]) r.scores[p.id] = {};
         r.scores[p.id][h] = parScore;
+      }
+    }
+
+    // Auto-save CTP if this is a par 3, CTP enabled, and not already saved
+    const firstTee2 = players[0]?.tee||'Blue';
+    const firstHd2 = r.course.tees[firstTee2]||Object.values(r.course.tees)[0];
+    if (r.games?.ctp?.on && (firstHd2?.par?.[h]||4) === 3) {
+      const alreadySaved = r.ctpResults?.[h] && Object.keys(r.ctpResults[h]).length > 0;
+      if (!alreadySaved) {
+        try { await this.saveCTP(h, true); } catch(e) { console.log('CTP save skipped:', e.message); }
       }
     }
 
@@ -907,18 +922,24 @@ const Scorecard = {
     body.innerHTML = html;
   },
 
-  async saveCTP(hole) {
+  async saveCTP(hole, silent=false) {
     const r = this.round;
     const players = r.players||[];
     const results = {};
     let winnerId = null;
     let winnerTotalInches = Infinity;
+    let anyInputFound = false;
 
     players.forEach((p, i) => {
-      const feet   = parseInt(document.getElementById(`ctp-feet-${i}`)?.value)||0;
-      const inches = parseInt(document.getElementById(`ctp-inches-${i}`)?.value)||0;
-      const og     = document.getElementById(`ctp-og-${i}`)?.checked||false;
-      if (feet===0 && inches===0) return; // not entered
+      const feetEl   = document.getElementById(`ctp-feet-${i}`);
+      const inchesEl = document.getElementById(`ctp-inches-${i}`);
+      const ogEl     = document.getElementById(`ctp-og-${i}`);
+      if (!feetEl) return; // DOM not present — skip
+      anyInputFound = true;
+      const feet   = parseInt(feetEl.value)||0;
+      const inches = parseInt(inchesEl?.value)||0;
+      const og     = ogEl?.checked||false;
+      if (feet===0 && inches===0) return;
       const totalInches = feet*12 + inches;
       results[p.id] = { feet, inches, og, distance:`${feet}'${inches}"`, totalInches };
       if (!og && totalInches < winnerTotalInches) {
@@ -927,21 +948,23 @@ const Scorecard = {
       }
     });
 
-    // Add winner to each result
+    // If no DOM inputs found and silent, skip entirely — don't overwrite existing data
+    if (!anyInputFound && silent) return;
+
     const finalResult = { ...results };
     if (winnerId) {
-      Object.values(finalResult).forEach(r => { r.isWinner = r === finalResult[winnerId]; });
       finalResult.winnerId = winnerId;
       finalResult.winnerDistance = results[winnerId]?.distance;
     }
 
     await DB.saveCTPResult(this.roundCode, hole, finalResult);
-    // Update local
     if (!r.ctpResults) r.ctpResults = {};
     r.ctpResults[hole] = finalResult;
 
-    const winnerName = players.find(p=>p.id===winnerId)?.name;
-    alert(`CTP H${hole+1} saved!${winnerId?' Winner: '+winnerName+' ('+finalResult[winnerId]?.distance+')':' No on-green shots recorded.'}`);
+    if (!silent) {
+      const winnerName = players.find(p=>p.id===winnerId)?.name;
+      alert(`CTP H${hole+1} saved!${winnerId?' Winner: '+winnerName+' ('+finalResult[winnerId]?.distance+')':' No on-green shots recorded.'}`);
+    }
   },
 
   async confirmEndRound() {
