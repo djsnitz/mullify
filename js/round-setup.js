@@ -449,7 +449,8 @@ const RoundSetup = {
       const allHoles = c.holes==='front9'?[0,1,2,3,4,5,6,7,8]:c.holes==='back9'?[9,10,11,12,13,14,15,16,17]:Array.from({length:18},(_,i)=>i);
       const startIdx = allHoles.findIndex(h=>h===startHole-1);
       const holeIndexes = startIdx>0?[...allHoles.slice(startIdx),...allHoles.slice(0,startIdx)]:allHoles;
-      return {...pp.player, tee:pp.tee, group:pp.group, startHole, holeIndexes};
+      return {...pp.player, tee:pp.tee, group:pp.group, startHole, holeIndexes,
+        quota: pp.player.quota||18, quota9: pp.player.quota9||Math.round((pp.player.quota||18)/2)};
     });
 
     const sharedHoleIndexes = this._buildHoleIndexes();
