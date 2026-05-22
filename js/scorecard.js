@@ -106,11 +106,11 @@ const Scorecard = {
   renderView() {
     const body = document.getElementById('sc-body');
     if      (this.view==='entry')       this._renderEntry(body);
-    else if (this.view==='leaderboard') this._renderLeaderboard(body);
-    else if (this.view==='skins')       this._renderSkins(body);
-    else if (this.view==='groups')      this._renderGroups(body);
     else if (this.view==='card')        this._renderCard(body);
-    else                                this._renderQuota(body);
+    else if (this.view==='leaderboard') this._renderLeaderboard(body);
+    else if (this.view==='summary')     this._renderSummary(body);
+    else if (this.view==='groups')      this._renderGroups(body);
+    else                                this._renderEntry(body);
   },
 
   showView(v, tab) {
@@ -433,10 +433,12 @@ const Scorecard = {
   async saveMyGroupHole() {
     const r = this.round;
     const h = (this._viewingHole !== undefined && this._viewingHole !== null) ? this._viewingHole : (r.currentHole || 0);
-    const holeIndexes = r.holeIndexes || Array.from({length:18},(_,i)=>i);
-    const currentIdx = holeIndexes.indexOf(h);
     const me = r.players?.find(p=>p.id===this.myPlayerId);
     const myGroup = me?.group;
+
+    // Use per-player holeIndexes if available (shotgun), else shared
+    const myHoleIndexes = me?.holeIndexes || r.holeIndexes || Array.from({length:18},(_,i)=>i);
+    const currentIdx = myHoleIndexes.indexOf(h);
 
     // Save par for any unscored player in my group
     const groupPlayers = (r.players||[]).filter(p=>p.group===myGroup);
@@ -445,32 +447,37 @@ const Scorecard = {
       const hd = r.course.tees[tee]||Object.values(r.course.tees)[0];
       if (r.scores?.[p.id]?.[h] === undefined || r.scores?.[p.id]?.[h] === null) {
         await DB.saveScore(this.roundCode, p.id, h, hd.par[h]||4);
+        if (!r.scores) r.scores = {};
+        if (!r.scores[p.id]) r.scores[p.id] = {};
+        r.scores[p.id][h] = hd.par[h]||4;
       }
     }
 
-    // Move viewing hole to next
-    if (currentIdx < holeIndexes.length - 1) {
-      this._viewingHole = holeIndexes[currentIdx + 1];
+    // Advance to next hole in this player's sequence
+    if (currentIdx < myHoleIndexes.length - 1) {
+      this._viewingHole = myHoleIndexes[currentIdx + 1];
+      this.renderView();
     } else {
-      alert('Your group has finished! Waiting for admin to close the round.');
+      this._viewingHole = myHoleIndexes[myHoleIndexes.length - 1];
+      alert('Your group has finished all holes! Waiting for admin to close the round.');
+      this.renderView();
     }
-    this.renderView();
   },
 
   async saveHole() {
     const r = this.round;
     const h = r.currentHole || 0;
     const players = r.players || [];
+    // For shotgun, use the admin/first player's hole sequence for advancing
     const holeIndexes = r.holeIndexes || Array.from({length:18},(_,i)=>i);
     const currentIdx = holeIndexes.indexOf(h);
     const isLastHole = currentIdx === holeIndexes.length - 1;
 
-    // Issue 1 fix: Save par for any player whose score wasn't manually adjusted
+    // Save par for any player whose score wasn't entered
     for (const p of players) {
       const tee = p.tee||'Blue';
       const hd = r.course.tees[tee]||Object.values(r.course.tees)[0];
-      const existingScore = r.scores?.[p.id]?.[h];
-      if (existingScore === undefined || existingScore === null) {
+      if (r.scores?.[p.id]?.[h] === undefined || r.scores?.[p.id]?.[h] === null) {
         const parScore = hd.par[h] || 4;
         await DB.saveScore(this.roundCode, p.id, h, parScore);
         if (!r.scores) r.scores = {};
@@ -479,22 +486,26 @@ const Scorecard = {
       }
     }
 
-    // Determine skin result using saved scores
+    // Calculate and save skin for this hole
     const netScores = players.map((p) => {
-      const tee=p.tee||'Blue'; const hd=r.course.tees[tee]||Object.values(r.course.tees)[0];
+      const tee=p.tee||'Blue';
+      const hd=r.course.tees[tee]||Object.values(r.course.tees)[0];
       const gross=r.scores?.[p.id]?.[h]??hd.par[h];
-      return this._net(gross,p.hcp,hd.hcp[h]);
+      return this._net(gross, p.hcp, hd.hcp[h]);
     });
     const min = Math.min(...netScores);
     const winners = netScores.reduce((a,s,i)=>s===min?[...a,i]:a,[]);
-    const skinResult = winners.length===1 ? {winner:winners[0],winnerId:players[winners[0]].id,tied:false} : {tied:true};
-
+    const skinResult = winners.length===1
+      ? {winner:winners[0], winnerId:players[winners[0]].id, tied:false}
+      : {tied:true};
     await DB.saveSkinResult(this.roundCode, h, skinResult);
 
     if (!isLastHole) {
       const nextHole = holeIndexes[currentIdx + 1];
       await DB.saveCurrentHole(this.roundCode, nextHole);
+      this._viewingHole = nextHole;
     } else {
+      // Round complete
       await DB.updateRound(this.roundCode, {status:'complete'});
       Payouts.buildFromRound({...r, code:this.roundCode});
       App.nav('payouts');
@@ -618,14 +629,123 @@ const Scorecard = {
     body.innerHTML = html;
   },
 
-  _renderCard(body) {
+  _renderSummary(body) {
     const r = this.round;
     const players = r.players||[];
     const holeIndexes = r.holeIndexes||Array.from({length:18},(_,i)=>i);
     const tee = players[0]?.tee||'Blue';
     const hd = r.course?.tees?.[tee]||Object.values(r.course?.tees||{})[0];
-    const me = players.find(p=>p.id===this.myPlayerId);
-    const myGroup = me?.group||null;
+    const is9hole = r.holes==='front9'||r.holes==='back9';
+
+    let html = '';
+
+    // ── Skins summary ──
+    if (r.games?.skins?.on) {
+      const skinPot = r.games.skins.buyin * players.length;
+      const skinResults = r.skinResults||{};
+      const won = Object.values(skinResults).filter(s=>s&&!s.tied);
+      const perSkin = won.length>0 ? skinPot/won.length : skinPot;
+      // Per-player skin count
+      const playerSkins = {};
+      Object.entries(skinResults).forEach(([h,res])=>{
+        if(res&&!res.tied&&res.winnerId) {
+          playerSkins[res.winnerId]=(playerSkins[res.winnerId]||0)+1;
+        }
+      });
+      html += `<div class="section-label">Skins · $${skinPot} pot</div><div class="card" style="margin-bottom:12px;">`;
+      if (won.length===0) {
+        html += `<div style="padding:10px 0;font-size:13px;color:var(--text-3);">No skins decided yet</div>`;
+      } else {
+        players.forEach(p=>{
+          const count = playerSkins[p.id]||0;
+          const amt = count*perSkin;
+          // Which holes
+          const holes = Object.entries(skinResults)
+            .filter(([,s])=>s&&!s.tied&&s.winnerId===p.id)
+            .map(([h])=>'H'+(parseInt(h)+1)).join(', ');
+          if(count===0) return;
+          html += `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border);">
+            <div class="avatar sm">${p.initials}</div>
+            <div style="flex:1;">
+              <div style="font-size:13px;font-weight:500;">${p.name.split(' ')[0]}</div>
+              <div style="font-size:11px;color:var(--text-2);">${holes}</div>
+            </div>
+            <div style="font-size:15px;font-weight:700;color:var(--green);">${count} skin${count!==1?'s':''} · $${amt.toFixed(2)}</div>
+          </div>`;
+        });
+        html += `<div style="padding:8px 0;font-size:11px;color:var(--text-2);">${won.length} hole${won.length!==1?'s':''} decided · $${perSkin.toFixed(2)}/skin</div>`;
+      }
+      // Tied holes
+      const tiedHoles = Object.entries(skinResults).filter(([,s])=>s&&s.tied).map(([h])=>'H'+(parseInt(h)+1));
+      if(tiedHoles.length) html += `<div style="font-size:11px;color:var(--amber);padding-bottom:6px;">Tied (no skin): ${tiedHoles.join(', ')}</div>`;
+      html += `</div>`;
+    }
+
+    // ── Quota summary ──
+    if (r.games?.quota?.on) {
+      const qpts = r.games.quota.pts||{eagle:5,birdie:4,par:3,bogey:2,double:1,worse:0};
+      html += `<div class="section-label">Quota standings</div><div class="card" style="margin-bottom:12px;">`;
+      const ranked = players.map((p,pi)=>{
+        const playerQuota = is9hole?(p.quota9||Math.round((p.quota||18)/2)):(p.quota||18);
+        let pts=0;
+        holeIndexes.forEach(h=>{
+          const gross=r.scores?.[p.id]?.[h]; if(!gross&&gross!==0) return;
+          const ptee=p.tee||'Blue'; const phd=r.course.tees[ptee]||Object.values(r.course.tees)[0];
+          const net=gross-this._strokes(p.hcp,phd.hcp[h]); const d=net-(phd.par[h]||4);
+          if(d<=-2)pts+=qpts.eagle||5; else if(d===-1)pts+=qpts.birdie||4;
+          else if(d===0)pts+=qpts.par||3; else if(d===1)pts+=qpts.bogey||2;
+          else if(d===2)pts+=qpts.double||1; else pts+=qpts.worse||0;
+        });
+        return {p, pts, quota:playerQuota, diff:pts-playerQuota};
+      }).sort((a,b)=>b.diff-a.diff);
+      ranked.forEach(({p,pts,quota,diff})=>{
+        const col=diff>=0?'var(--green)':'var(--red)';
+        const diffStr=diff>=0?`+${diff}`:diff;
+        html+=`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--border);">
+          <div class="avatar sm">${p.initials}</div>
+          <div style="flex:1;"><div style="font-size:13px;font-weight:500;">${p.name.split(' ')[0]}</div>
+          <div style="font-size:11px;color:var(--text-2);">${pts}pts · quota ${quota}</div></div>
+          <div style="font-size:16px;font-weight:700;color:${col};">${diffStr}</div>
+        </div>`;
+      });
+      html+=`</div>`;
+    }
+
+    // ── CTP summary ──
+    if (r.games?.ctp?.on) {
+      const ctpPot = r.games.ctp.buyin * players.length;
+      const par3Holes = holeIndexes.filter(h=>(hd?.par?.[h]||4)===3);
+      html += `<div class="section-label">Closest to pin · $${ctpPot} pot</div><div class="card" style="margin-bottom:12px;">`;
+      let hasAny = false;
+      par3Holes.forEach(h=>{
+        const res = (r.ctpResults||{})[h];
+        if (!res) {
+          html+=`<div style="padding:7px 0;border-bottom:0.5px solid var(--border);font-size:12px;color:var(--text-3);">H${h+1} Par 3 — not recorded yet</div>`;
+          return;
+        }
+        hasAny = true;
+        if (res.winnerId) {
+          const w=players.find(p=>p.id===res.winnerId);
+          html+=`<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid var(--border);">
+            <div class="avatar sm">${w?.initials||'?'}</div>
+            <div style="flex:1;font-size:13px;">${w?.name?.split(' ')[0]||'?'} · H${h+1} · ${res[res.winnerId]?.distance||res.winnerDistance||'?'}</div>
+            <span style="font-size:11px;color:var(--green);font-weight:600;">Winner</span>
+          </div>`;
+        } else {
+          html+=`<div style="padding:7px 0;border-bottom:0.5px solid var(--border);font-size:12px;color:var(--amber);">H${h+1} — no on-green shots (carries to quota)</div>`;
+        }
+      });
+      if(!par3Holes.length) html+=`<div style="padding:10px 0;font-size:13px;color:var(--text-3);">No par 3 holes in this round</div>`;
+      html+=`</div>`;
+    }
+
+    if(!html) html=`<div class="empty-state"><div class="empty-title">No games active</div></div>`;
+    body.innerHTML = html;
+  },
+
+  _renderCard(body) {
+    const r = this.round;
+    const players = r.players||[];
 
     // Group filter toggle
     const showAll = this._cardShowAll !== false;
