@@ -182,9 +182,10 @@ const Scorecard = {
     if (me.group !== target.group) return false; // different group — no
 
     // Check score keeper mode for this group
-    const groupKeeper = (this.round?.scoreKeepers||{})[me.group];
-    if (!groupKeeper) return me.id === target.id; // no keeper set — individual only
-    return groupKeeper === this.myPlayerId; // keeper can score whole group
+    const groupKeeper = (this.round?.scoreKeepers||{})[me.group] ||
+                        (this.round?.scoreKeepers||{})[String(me.group)];
+    if (!groupKeeper) return me.id === target.id;
+    return groupKeeper === this.myPlayerId;
   },
 
   // Is this player the score keeper for their group?
@@ -217,21 +218,28 @@ const Scorecard = {
 
   _renderEntry(body) {
     const r = this.round;
-    const h = (this._viewingHole !== undefined && this._viewingHole !== null)
-      ? this._viewingHole : (r.currentHole || 0);
+    const h = Number(
+      (this._viewingHole !== undefined && this._viewingHole !== null)
+        ? this._viewingHole : (r.currentHole || 0)
+    );
     const players = r.players || [];
     const me = players.find(p => p.id === this.myPlayerId);
     const myGroup = me?.group || null;
     const scoreKeepers = r.scoreKeepers || {};
-    const myKeeper = myGroup ? scoreKeepers[myGroup] : null;
-    const iAmKeeper = myKeeper === this.myPlayerId;
+    // Firebase stores keys as strings — check both string and number
+    const myKeeper = myGroup !== null
+      ? (scoreKeepers[myGroup] || scoreKeepers[String(myGroup)])
+      : null;
+    const iAmKeeper = !!myKeeper && myKeeper === this.myPlayerId;
     const keeperName = myKeeper ? players.find(p=>p.id===myKeeper)?.name?.split(' ')[0] : null;
 
-    const holeIndexes = r.holeIndexes || Array.from({length:18},(_,i)=>i);
-    const currentIdx = holeIndexes.indexOf(h);
-    const isLastHole = currentIdx === holeIndexes.length - 1;
-    const nextHole = !isLastHole ? holeIndexes[currentIdx + 1] : null;
-    const prevHole = currentIdx > 0 ? holeIndexes[currentIdx - 1] : null;
+    // Normalize holeIndexes from Firebase object to array
+    let holeIndexes = r.holeIndexes || Array.from({length:18},(_,i)=>i);
+    if (!Array.isArray(holeIndexes)) holeIndexes = Object.values(holeIndexes).map(Number);
+    const currentIdx = holeIndexes.findIndex(hi => Number(hi) === h);
+    const isLastHole = currentIdx === -1 || currentIdx === holeIndexes.length - 1;
+    const nextHole = currentIdx >= 0 && !isLastHole ? Number(holeIndexes[currentIdx + 1]) : null;
+    const prevHole = currentIdx > 0 ? Number(holeIndexes[currentIdx - 1]) : null;
 
     // Determine which players to show
     let visiblePlayers;
@@ -342,28 +350,29 @@ const Scorecard = {
       html += `<div class="sec-skin-result ${winners.length===1?'skr-won':'skr-tied'}" style="margin-top:8px;">${winners.length===1?`🏆 ${players[winners[0]].name.split(' ')[0]} leads this hole`:'Tied — no skin'}</div>`;
     }
 
-    // CTP on par 3 — entry fields, saved automatically when hole is saved
-    const currentPar = Array.isArray(holePar) ? holePar : (typeof holePar === 'number' ? holePar : 4);
-    if (r.games?.ctp?.on && currentPar === 3) {
-      const existing = r.ctpResults?.[h] || {};
-      const hasEntry = Object.keys(existing).some(k=>k!=='winnerId'&&k!=='winnerDistance');
-      html += `<div style="background:var(--surface);border-radius:var(--radius);border:1px solid var(--blue);padding:12px 14px;margin-top:8px;">
+    // CTP on par 3
+    if (r.games?.ctp?.on && holePar === 3) {
+      const existing = r.ctpResults?.[h] || r.ctpResults?.[String(h)] || {};
+      const hasEntry = Object.keys(existing).some(k=>k!=='winnerId'&&k!=='winnerDistance'&&k!=='isWinner');
+      html += `<div style="background:var(--surface);border-radius:var(--radius);border:1.5px solid var(--blue);padding:12px 14px;margin-top:8px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
           <div style="font-size:12px;font-weight:600;color:var(--blue);">⛳ Closest to pin · H${h+1}</div>
-          ${hasEntry?`<span style="font-size:10px;color:var(--green);">Saved ✓</span>`:'<span style="font-size:10px;color:var(--text-3);">Saved with hole</span>'}
+          ${hasEntry?`<span style="font-size:10px;color:var(--green);">Saved ✓</span>`:''}
         </div>
-        ${visiblePlayers.map((p,i)=>{
+        ${visiblePlayers.map((p)=>{
           const pi = players.findIndex(pl=>pl.id===p.id);
           const entry=existing[p.id]||{};
           return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
             <div class="avatar sm">${p.initials}</div>
             <span style="font-size:12px;flex:1;">${p.first||p.name.split(' ')[0]}</span>
             <input type="number" placeholder="ft" min="0" value="${entry.feet||''}" id="ctp-feet-${pi}" style="width:50px;padding:4px 6px;border-radius:6px;border:0.5px solid var(--border-2);font-size:12px;" />
+            <span style="font-size:11px;">ft</span>
             <input type="number" placeholder="in" min="0" max="11" value="${entry.inches||''}" id="ctp-inches-${pi}" style="width:44px;padding:4px 6px;border-radius:6px;border:0.5px solid var(--border-2);font-size:12px;" />
+            <span style="font-size:11px;">in</span>
             <label style="font-size:11px;color:var(--red);display:flex;align-items:center;gap:3px;"><input type="checkbox" id="ctp-og-${pi}" ${entry.og?'checked':''} />OG</label>
           </div>`;
         }).join('')}
-        <div style="font-size:10px;color:var(--text-3);margin-top:4px;">CTP is saved automatically when you save the hole</div>
+        <button class="outline-btn" style="width:100%;margin-top:4px;font-size:12px;" onclick="Scorecard.saveCTP(${h})">Save CTP distances</button>
       </div>`;
     }
 
