@@ -270,7 +270,7 @@ const Scorecard = {
     // Hole info header
     const firstTee = players[0]?.tee||'Blue';
     const hd = r.course?.tees?.[firstTee]||Object.values(r.course?.tees||{})[0];
-    const holePar = hd?.par?.[h]||4;
+    const holePar = Array.isArray(hd?.par) ? (hd.par[h]||4) : (hd?.par?.[h]||hd?.par?.[String(h)]||4);
     const holeHcp = hd?.hcp?.[h]||1;
 
     let html = bannerHtml;
@@ -339,7 +339,7 @@ const Scorecard = {
     }
 
     // CTP on par 3 — entry fields, saved automatically when hole is saved
-    const currentPar = holePar;
+    const currentPar = Array.isArray(holePar) ? holePar : (typeof holePar === 'number' ? holePar : 4);
     if (r.games?.ctp?.on && currentPar === 3) {
       const existing = r.ctpResults?.[h] || {};
       const hasEntry = Object.keys(existing).some(k=>k!=='winnerId'&&k!=='winnerDistance');
@@ -729,7 +729,12 @@ const Scorecard = {
     // ── CTP summary ──
     if (r.games?.ctp?.on) {
       const ctpPot = r.games.ctp.buyin * players.length;
-      const par3Holes = holeIndexes.filter(h=>(hd?.par?.[h]||4)===3);
+      const getPar = (h) => {
+        if (!hd?.par) return 4;
+        if (Array.isArray(hd.par)) return hd.par[h]||4;
+        return hd.par[h]||hd.par[String(h)]||4;
+      };
+      const par3Holes = holeIndexes.filter(h => getPar(h) === 3);
       html += `<div class="section-label">Closest to pin · $${ctpPot} pot</div><div class="card" style="margin-bottom:12px;">`;
       let hasAny = false;
       par3Holes.forEach(h=>{
