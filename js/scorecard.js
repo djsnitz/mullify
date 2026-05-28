@@ -55,21 +55,23 @@ const Scorecard = {
   _myNextHole() {
     const r = this.round;
     if (!r) return 0;
-    const holeIndexes = r.holeIndexes || Array.from({length:18},(_,i)=>i);
-    if (this.isAdmin) return r.currentHole || holeIndexes[0];
+    let holeIndexes = r.holeIndexes || Array.from({length:18},(_,i)=>i);
+    if (!Array.isArray(holeIndexes)) holeIndexes = Object.values(holeIndexes).map(Number);
+    if (this.isAdmin) return Number(r.currentHole) || Number(holeIndexes[0]);
     const myScores = r.scores?.[this.myPlayerId] || {};
-    // Find first unscored hole in order
-    const nextUnscored = holeIndexes.find(h => myScores[h] === undefined || myScores[h] === null);
-    return nextUnscored !== undefined ? nextUnscored : holeIndexes[holeIndexes.length - 1];
+    const nextUnscored = holeIndexes.find(h => myScores[h] === undefined && myScores[String(h)] === undefined);
+    return nextUnscored !== undefined ? Number(nextUnscored) : Number(holeIndexes[holeIndexes.length - 1]);
   },
 
   render() {
     if (!this.round) return;
     const r = this.round;
-    // Use viewing hole if set, otherwise use official current hole
-    const h = (this._viewingHole !== undefined && this._viewingHole !== null)
-      ? this._viewingHole
-      : (r.currentHole || 0);
+    // Use viewing hole if set, otherwise use official current hole — normalize to number
+    const h = Number(
+      (this._viewingHole !== undefined && this._viewingHole !== null)
+        ? this._viewingHole
+        : (r.currentHole || 0)
+    );
     const players = r.players || [];
     const firstTee = players[0]?.tee || 'Blue';
     const holeData = r.course?.tees?.[firstTee] || Object.values(r.course?.tees||{})[0];
@@ -80,14 +82,16 @@ const Scorecard = {
     if (deleteBtn) deleteBtn.style.display = this.isAdmin ? 'block' : 'none';
     document.getElementById('sc-hole-display').textContent = `H${h+1}`;
 
-    // Hole nav — use shared holeIndexes or first player's indexes
-    const holeIndexes = r.holeIndexes || Array.from({length:18},(_,i)=>i);
+    // Hole nav — normalize holeIndexes from Firebase (may be object not array)
+    let holeIndexes = r.holeIndexes || Array.from({length:18},(_,i)=>i);
+    if (!Array.isArray(holeIndexes)) holeIndexes = Object.values(holeIndexes).map(Number);
     document.getElementById('sc-hole-nav').innerHTML = holeIndexes.map(i => {
-      const done = r.players.some(p => r.scores?.[p.id]?.[i] !== undefined);
-      const skin = (r.skinResults||{})[i];
+      const hi = Number(i);
+      const done = r.players.some(p => r.scores?.[p.id]?.[hi] !== undefined || r.scores?.[p.id]?.[String(hi)] !== undefined);
+      const skin = (r.skinResults||{})[hi] || (r.skinResults||{})[String(hi)];
       const skinWon = skin && !skin.tied;
-      const isActive = i === h;
-      return `<button class="hole-pill${isActive?' active':''}${done?' done':''}${skinWon?' skin-won':''}" onclick="Scorecard.viewHole(${i})">${i+1}</button>`;
+      const isActive = hi === h;
+      return `<button class="hole-pill${isActive?' active':''}${done?' done':''}${skinWon?' skin-won':''}" onclick="Scorecard.viewHole(${hi})">${hi+1}</button>`;
     }).join('');
 
     // Hole info
@@ -441,29 +445,37 @@ const Scorecard = {
     const me = r.players?.find(p=>p.id===this.myPlayerId);
     const myGroup = me?.group;
 
-    // Use per-player holeIndexes if available (shotgun), else shared
-    const myHoleIndexes = me?.holeIndexes || r.holeIndexes || Array.from({length:18},(_,i)=>i);
-    const currentIdx = myHoleIndexes.indexOf(h);
+    // Use shared holeIndexes — always an ordered sequence of holes to play
+    // Convert from Firebase object to array if needed
+    let holeIndexes = r.holeIndexes || Array.from({length:18},(_,i)=>i);
+    if (!Array.isArray(holeIndexes)) holeIndexes = Object.values(holeIndexes).map(Number);
+
+    // Find current position — search by value not reference
+    let currentIdx = holeIndexes.findIndex(hi => Number(hi) === Number(h));
+    if (currentIdx === -1) {
+      // Hole not found — start from beginning
+      currentIdx = 0;
+    }
 
     // Save par for any unscored player in my group
     const groupPlayers = (r.players||[]).filter(p=>p.group===myGroup);
     for (const p of groupPlayers) {
       const tee = p.tee||'Blue';
       const hd = r.course.tees[tee]||Object.values(r.course.tees)[0];
+      const par = Array.isArray(hd.par) ? (hd.par[h]||4) : (hd.par[h]||hd.par[String(h)]||4);
       if (r.scores?.[p.id]?.[h] === undefined || r.scores?.[p.id]?.[h] === null) {
-        await DB.saveScore(this.roundCode, p.id, h, hd.par[h]||4);
+        await DB.saveScore(this.roundCode, p.id, h, par);
         if (!r.scores) r.scores = {};
         if (!r.scores[p.id]) r.scores[p.id] = {};
-        r.scores[p.id][h] = hd.par[h]||4;
+        r.scores[p.id][h] = par;
       }
     }
 
-    // Advance to next hole in this player's sequence
-    if (currentIdx < myHoleIndexes.length - 1) {
-      this._viewingHole = myHoleIndexes[currentIdx + 1];
+    // Advance to next hole
+    if (currentIdx < holeIndexes.length - 1) {
+      this._viewingHole = Number(holeIndexes[currentIdx + 1]);
       this.renderView();
     } else {
-      this._viewingHole = myHoleIndexes[myHoleIndexes.length - 1];
       alert('Your group has finished all holes! Waiting for admin to close the round.');
       this.renderView();
     }
