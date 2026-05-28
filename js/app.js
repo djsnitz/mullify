@@ -152,15 +152,25 @@ const Payouts = {
       const tee = players[0]?.tee||'Blue';
       const hd = r.course?.tees?.[tee]||Object.values(r.course?.tees||{})[0];
       const holeIndexes = r.holeIndexes||Array.from({length:18},(_,i)=>i);
-      const par3Holes = holeIndexes.filter(h=>(hd?.par?.[h]||4)===3);
-      const perHole = par3Holes.length>0 ? ctpPot/par3Holes.length : 0;
-      par3Holes.forEach(h=>{
-        const res = (r.ctpResults||{})[h];
+
+      // Firebase may store par as array or object with string keys — handle both
+      const getPar = (h) => {
+        if (!hd?.par) return 4;
+        if (Array.isArray(hd.par)) return hd.par[h]||4;
+        return hd.par[h]||hd.par[String(h)]||4;
+      };
+
+      const par3Holes = holeIndexes.filter(h => getPar(h) === 3);
+      // $pot split equally across all par 3 holes
+      const perHole = par3Holes.length > 0 ? ctpPot / par3Holes.length : 0;
+
+      par3Holes.forEach(h => {
+        const res = (r.ctpResults||{})[h] || (r.ctpResults||{})[String(h)];
         if (res?.winnerId) {
           const idx = players.findIndex(p=>p.id===res.winnerId);
-          if(idx>=0) winnings[idx]+=perHole;
+          if (idx>=0) winnings[idx] += perHole;
         } else {
-          ctpCarryover+=perHole;
+          ctpCarryover += perHole; // no winner — carry to quota
         }
       });
     }
@@ -172,8 +182,16 @@ const Payouts = {
       const is9hole = r.holes==='front9'||r.holes==='back9';
       const qpts = r.games.quota.pts||r.games.stableford?.pts||{eagle:5,birdie:4,par:3,bogey:2,double:1,worse:0};
       const diffs = players.map(p=>{
-        const playerQuota = is9hole?(p.quota9||Math.round((p.quota||18)/2)):(p.quota||18);
-        return calcPts(p,qpts) - playerQuota;
+        // Use quota stored on round player, or fall back to a reasonable default
+        // quota should always be > 0; if missing/0 use 18 for 18H or 9 for 9H
+        let playerQuota;
+        if (is9hole) {
+          playerQuota = (p.quota9 && p.quota9 > 0) ? p.quota9 : Math.round(((p.quota||18))/2);
+        } else {
+          playerQuota = (p.quota && p.quota > 0) ? p.quota : 18;
+        }
+        const pts = calcPts(p, qpts);
+        return pts - playerQuota;
       });
       this._distributeWithTies(winnings, diffs, places, quotaPot);
     }
