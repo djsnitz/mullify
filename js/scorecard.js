@@ -24,8 +24,13 @@ const Scorecard = {
     this._viewingHole = this._myNextHole();
     Store.saveActiveRound({...round, code: this.roundCode});
     DB.onRoundChanged(this.roundCode, r => {
+      const prevHole = this.round?.currentHole;
       this.round = r;
       Store.saveActiveRound({...r, code: this.roundCode});
+      // If admin and hole advanced in DB, sync viewing hole
+      if (this.isAdmin && !this._adminMyScoreOnly && r.currentHole !== prevHole) {
+        this._viewingHole = Number(r.currentHole);
+      }
       // Only update viewing hole if not set yet
       if (this._viewingHole === null) this._viewingHole = this._myNextHole();
       this.render();
@@ -492,12 +497,16 @@ const Scorecard = {
 
   async saveHole() {
     const r = this.round;
-    const h = r.currentHole || 0;
+    const h = Number(
+      (this._viewingHole !== undefined && this._viewingHole !== null)
+        ? this._viewingHole : (r.currentHole || 0)
+    );
     const players = r.players || [];
-    // For shotgun, use the admin/first player's hole sequence for advancing
-    const holeIndexes = r.holeIndexes || Array.from({length:18},(_,i)=>i);
-    const currentIdx = holeIndexes.indexOf(h);
-    const isLastHole = currentIdx === holeIndexes.length - 1;
+    // Normalize holeIndexes from Firebase
+    let holeIndexes = r.holeIndexes || Array.from({length:18},(_,i)=>i);
+    if (!Array.isArray(holeIndexes)) holeIndexes = Object.values(holeIndexes).map(Number);
+    const currentIdx = holeIndexes.findIndex(hi => Number(hi) === h);
+    const isLastHole = currentIdx === -1 || currentIdx === holeIndexes.length - 1;
 
     // Save par for any player whose score wasn't entered
     for (const p of players) {
@@ -537,9 +546,10 @@ const Scorecard = {
     await DB.saveSkinResult(this.roundCode, h, skinResult);
 
     if (!isLastHole) {
-      const nextHole = holeIndexes[currentIdx + 1];
+      const nextHole = Number(holeIndexes[currentIdx + 1]);
+      this._viewingHole = nextHole;  // set immediately before Firebase
+      this.renderView();             // render new hole right away
       await DB.saveCurrentHole(this.roundCode, nextHole);
-      this._viewingHole = nextHole;
     } else {
       // Round complete
       await DB.updateRound(this.roundCode, {status:'complete'});
