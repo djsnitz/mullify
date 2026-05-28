@@ -246,12 +246,18 @@ const Courses = {
       `<thead>${mkRows(front,'Out')}</thead><tbody>${mkRows(back,'In')}<tr><td>Total</td><td colspan="9" style="text-align:center;font-size:11px;color:var(--text-2);">${(t.yds||[]).reduce((a,b)=>a+b,0)} yds</td><td>${(t.par||[]).reduce((a,b)=>a+b,0)}</td></tr></tbody>`;
   },
 
+  // Remove undefined values that Firebase rejects
+  _sanitize(obj) {
+    return JSON.parse(JSON.stringify(obj, (key, val) => val === undefined ? null : val));
+  },
+
   async download() {
     if (this.downloading) return;
     this.downloading = true;
     const wrap=document.getElementById('dl-bar-wrap');
     const fill=document.getElementById('dl-bar-fill');
     const btn=document.getElementById('preview-dl-btn');
+    const note=document.querySelector('.offline-note');
     wrap.style.display='block'; btn.disabled=true; btn.textContent='Saving…';
     let pct=0;
     const iv=setInterval(async()=>{
@@ -259,11 +265,20 @@ const Courses = {
       fill.style.width=pct+'%';
       if(pct>=100){
         clearInterval(iv);
-        await DB.saveCourse(this.previewCourse);
-        await this.load();
-        btn.textContent='Saved ✓';
+        try {
+          const sanitized = this._sanitize(this.previewCourse);
+          await DB.saveCourse(sanitized);
+          await this.load();
+          btn.textContent='Saved ✓';
+          if(note) note.textContent='Saved — works offline on the course';
+        } catch(e) {
+          console.error('Save course error:', e);
+          btn.textContent='Save failed — try again';
+          btn.disabled=false;
+          if(note) note.textContent='Error saving — check connection';
+          alert('Could not save course: ' + e.message);
+        }
         this.downloading=false;
-        document.querySelector('.offline-note').textContent='Saved — works offline on the course';
       }
     },120);
   }
