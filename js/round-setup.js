@@ -17,8 +17,8 @@ const RoundSetup = {
       netScoring: true,
       entryMode: 'both',
       games: {
-        skins:      { on:true,  buyin:5  },
-        stableford: { on:true,  buyin:10, places:2, pts:{eagle:4,birdie:3,par:2,bogey:1,double:0,worse:0} },
+        skins:      { on:false, buyin:5  },
+        stableford: { on:false, buyin:10, places:2, pts:{eagle:4,birdie:3,par:2,bogey:1,double:0,worse:0} },
         ctp:        { on:false, buyin:5,  holes:[] },
         quota:      { on:false, buyin:10, places:2, pts:{eagle:5,birdie:4,par:3,bogey:2,double:1,worse:0} },
         lowgross:   { on:false, buyin:10 },
